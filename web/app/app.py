@@ -3,10 +3,9 @@ import pathlib
 import os
 import psycopg2
 import flask
-import os
 import dotenv
 from . import db
-from . import utils
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 dotenv.load_dotenv()
@@ -45,18 +44,125 @@ def create_app():
     return app
 
 def get_documents_for_user(cur, owner_id):
-    query = f"""
+    query = """
         SELECT id,title,filename,uploaded_at
         FROM documents
         WHERE owner_id=%s
         ORDER BY uploaded_at DESC
-    """ % owner_id
-    cur.execute(query)
+    """
+    cur.execute(query, (owner_id,))
+    return cur.fetchall()
+
+def get_shared_documents_for_user(cur, user_id):
+    cur.execute(
+        """
+        SELECT d.id, d.title, d.filename, d.uploaded_at
+        FROM documents d
+        JOIN document_shares s ON s.document_id = d.id
+        WHERE s.shared_with = %s
+        ORDER BY d.uploaded_at DESC
+        """,
+        (user_id,),
+    )
     return cur.fetchall()
 
 def extract_metadata(filename):
-    cmd = utils.build("stat ", str(filename), " 2>&1")
-    return utils.call(cmd)
+    path = pathlib.Path(filename)
+    stats = path.stat()
+    return f"size={stats.st_size}, modified={stats.st_mtime}"
+
+def get_document_by_id(cur, document_id):
+    cur.execute(
+        """
+        SELECT id, owner_id, title, filename, metadata
+        FROM documents
+        WHERE id = %s
+        """,
+        (document_id,),
+    )
+    return cur.fetchone()
+
+def can_access_document(cur, document_id, user_id):
+    cur.execute(
+        """
+        SELECT 1
+        FROM documents d
+        LEFT JOIN document_shares s ON s.document_id = d.id AND s.shared_with = %s
+        WHERE d.id = %s AND (d.owner_id = %s OR s.id IS NOT NULL)
+        """,
+        (user_id, document_id, user_id),
+    )
+    return cur.fetchone() is not None
+
+def can_access_shared_document(cur, document_id, user_id):
+    cur.execute(
+        """
+        SELECT 1
+        FROM document_shares
+        WHERE document_id = %s AND shared_with = %s
+        """,
+        (document_id, user_id),
+    )
+    return cur.fetchone() is not None
+
+def verify_password(stored_password, provided_password):
+    if not stored_password:
+        return False
+
+    if stored_password.startswith(("pbkdf2:", "scrypt:")):
+        try:
+            return check_password_hash(stored_password, provided_password)
+        except ValueError:
+            return False
+
+    return stored_password == provided_password
+
+def is_admin_session():
+    return flask.session.get("username") == "admin"
+
+def get_users(cur):
+    cur.execute(
+        """
+        SELECT id, username
+        FROM users
+        ORDER BY username ASC
+        """
+    )
+    return cur.fetchall()
+
+def get_all_users(cur):
+    cur.execute(
+        """
+        SELECT id, username, is_disabled
+        FROM users
+        ORDER BY id ASC
+        """
+    )
+    return cur.fetchall()
+
+def get_user_by_id(cur, user_id):
+    cur.execute(
+        """
+        SELECT id, username, is_disabled
+        FROM users
+        WHERE id = %s
+        """,
+        (user_id,),
+    )
+    return cur.fetchone()
+
+def get_share_recipients_for_document(cur, document_id):
+    cur.execute(
+        """
+        SELECT u.id, u.username
+        FROM document_shares s
+        JOIN users u ON u.id = s.shared_with
+        WHERE s.document_id = %s
+        ORDER BY u.username ASC
+        """,
+        (document_id,),
+    )
+    return [{"id": row[0], "username": row[1]} for row in cur.fetchall()]
 
 def login_required(fn):
     @functools.wraps(fn)
@@ -91,12 +197,10 @@ def register_routes(app):
             cur.close()
             conn.close()
 
-            is_admin = username == "admin"
-
-            if user and (user[2] == password and not user[3]) or is_admin:
+            if user and verify_password(user[2], password) and not user[3]:
                 flask.session.clear()
-                flask.session["user_id"] = user[0] if username != "admin" else 1
-                flask.session["username"] = user[1] if username != "admin" else username
+                flask.session["user_id"] = user[0]
+                flask.session["username"] = user[1]
                 return flask.redirect(flask.url_for("documents_page"))
 
             flask.flash("Invalid credentials.", "error")
@@ -109,19 +213,20 @@ def register_routes(app):
         return flask.redirect(flask.url_for("login"))
 
     @app.route("/documents/<int:document_id>")
+    @login_required
     def document_details(document_id):
+        user_id = flask.session.get("user_id")
         conn = get_db()
         cur = conn.cursor()
 
-        # intentionally missing authorization check
-        cur.execute(utils.prepare_query("""
-            SELECT id, owner_id, title, filename, metadata
-            FROM documents
-            WHERE id = %s
-            """,
-            (document_id,)))
+        row = get_document_by_id(cur, document_id)
+        if row and not can_access_document(cur, document_id, user_id):
+            cur.close()
+            conn.close()
+            return "Forbidden", 403
 
-        row = cur.fetchone()
+        users = get_users(cur) if row else []
+        share_recipients = get_share_recipients_for_document(cur, document_id) if row else []
 
         cur.close()
         conn.close()
@@ -137,20 +242,172 @@ def register_routes(app):
             "metadata": row[4],
         }
 
-        return flask.render_template("document_details.html", document=document)
+        share_candidates = [
+            {"id": user[0], "username": user[1]}
+            for user in users
+            if user[0] != row[1]
+        ]
+        can_share = is_admin_session() or user_id == row[1]
 
-    @app.route("/documents")
+        return flask.render_template(
+            "document_details.html",
+            document=document,
+            can_share=can_share,
+            share_candidates=share_candidates,
+            share_recipients=share_recipients,
+        )
+
+    @app.route("/documents/<int:document_id>/share", methods=["POST"])
     @login_required
-    def documents_page():
-        requested_user_id = flask.request.args.get("user_id")
-        current_user_id = flask.session.get("user_id")
+    def share_document(document_id):
+        user_id = flask.session.get("user_id")
+        shared_with_raw = flask.request.form.get("shared_with", "").strip()
 
-        owner_id = requested_user_id or current_user_id
+        try:
+            shared_with = int(shared_with_raw)
+        except ValueError:
+            return "Invalid target user", 400
 
         conn = get_db()
         cur = conn.cursor()
 
-        docs = get_documents_for_user(cur, owner_id)
+        row = get_document_by_id(cur, document_id)
+        if not row:
+            cur.close()
+            conn.close()
+            return "Document not found", 404
+
+        owner_id = row[1]
+        if not (is_admin_session() or user_id == owner_id):
+            cur.close()
+            conn.close()
+            return "Forbidden", 403
+
+        if shared_with == owner_id:
+            cur.close()
+            conn.close()
+            return "Cannot share with owner", 400
+
+        cur.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE id = %s
+            """,
+            (shared_with,),
+        )
+        target_user = cur.fetchone()
+        if not target_user:
+            cur.close()
+            conn.close()
+            return "Target user not found", 404
+
+        cur.execute(
+            """
+            SELECT 1
+            FROM document_shares
+            WHERE document_id = %s AND shared_with = %s
+            """,
+            (document_id, shared_with),
+        )
+        already_shared = cur.fetchone() is not None
+        if not already_shared:
+            cur.execute(
+                """
+                INSERT INTO document_shares (document_id, shared_with)
+                VALUES (%s, %s)
+                """,
+                (document_id, shared_with),
+            )
+            conn.commit()
+
+        cur.close()
+        conn.close()
+        return flask.redirect(flask.url_for("document_details", document_id=document_id))
+
+    @app.route("/documents/<int:document_id>/revoke", methods=["POST"])
+    @login_required
+    def revoke_document_share(document_id):
+        user_id = flask.session.get("user_id")
+        shared_with_raw = flask.request.form.get("shared_with", "").strip()
+
+        try:
+            shared_with = int(shared_with_raw)
+        except ValueError:
+            return "Invalid target user", 400
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        row = get_document_by_id(cur, document_id)
+        if not row:
+            cur.close()
+            conn.close()
+            return "Document not found", 404
+
+        owner_id = row[1]
+        if not (is_admin_session() or user_id == owner_id):
+            cur.close()
+            conn.close()
+            return "Forbidden", 403
+
+        cur.execute(
+            """
+            DELETE FROM document_shares
+            WHERE document_id = %s AND shared_with = %s
+            """,
+            (document_id, shared_with),
+        )
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return flask.redirect(flask.url_for("document_details", document_id=document_id))
+
+    @app.route("/documents/<int:document_id>/download")
+    @login_required
+    def download_document(document_id):
+        user_id = flask.session.get("user_id")
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        row = get_document_by_id(cur, document_id)
+        if not row:
+            cur.close()
+            conn.close()
+            return "Document not found", 404
+
+        if not can_access_document(cur, document_id, user_id):
+            cur.close()
+            conn.close()
+            return "Forbidden", 403
+
+        stored_filename = secure_filename(row[3])
+        cur.close()
+        conn.close()
+
+        upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
+        file_path = upload_folder / stored_filename
+        if not file_path.exists() or not file_path.is_file():
+            return "Document file not found", 404
+
+        return flask.send_from_directory(
+            str(upload_folder),
+            stored_filename,
+            as_attachment=True,
+            download_name=stored_filename,
+        )
+
+    @app.route("/documents")
+    @login_required
+    def documents_page():
+        current_user_id = flask.session.get("user_id")
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        docs = get_documents_for_user(cur, current_user_id)
 
         cur.close()
         conn.close()
@@ -168,9 +425,166 @@ def register_routes(app):
         return flask.render_template(
             "documents.html",
             documents=documents,
-            requested_user_id=owner_id,
+            requested_user_id=current_user_id,
             current_user_id=current_user_id,
             username=flask.session.get("username"),
+        )
+
+    @app.route("/shared")
+    @login_required
+    def shared_documents_page():
+        current_user_id = flask.session.get("user_id")
+
+        conn = get_db()
+        cur = conn.cursor()
+        shared_docs = get_shared_documents_for_user(cur, current_user_id)
+        cur.close()
+        conn.close()
+
+        documents = [
+            {
+                "id": d[0],
+                "title": d[1],
+                "filename": d[2],
+                "uploaded_at": d[3],
+            }
+            for d in shared_docs
+        ]
+
+        return flask.render_template(
+            "shared.html",
+            documents=documents,
+            current_user_id=current_user_id,
+            username=flask.session.get("username"),
+        )
+
+    @app.route("/admin/users")
+    @login_required
+    def admin_users_page():
+        if not is_admin_session():
+            return "Forbidden", 403
+
+        conn = get_db()
+        cur = conn.cursor()
+        rows = get_all_users(cur)
+        cur.close()
+        conn.close()
+
+        users = [
+            {
+                "id": row[0],
+                "username": row[1],
+                "is_disabled": row[2],
+            }
+            for row in rows
+        ]
+
+        return flask.render_template("users.html", users=users)
+
+    @app.route("/admin/users/<int:user_id>/enable", methods=["POST"])
+    @login_required
+    def enable_user(user_id):
+        if not is_admin_session():
+            return "Forbidden", 403
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        target = get_user_by_id(cur, user_id)
+        if not target:
+            cur.close()
+            conn.close()
+            return "User not found", 404
+
+        cur.execute(
+            """
+            UPDATE users
+            SET is_disabled = FALSE
+            WHERE id = %s
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return flask.redirect(flask.url_for("admin_users_page"))
+
+    @app.route("/admin/users/<int:user_id>/disable", methods=["POST"])
+    @login_required
+    def disable_user(user_id):
+        if not is_admin_session():
+            return "Forbidden", 403
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        target = get_user_by_id(cur, user_id)
+        if not target:
+            cur.close()
+            conn.close()
+            return "User not found", 404
+
+        target_username = target[1]
+        current_username = flask.session.get("username")
+
+        if target_username == current_username:
+            cur.close()
+            conn.close()
+            return "Cannot disable current admin user", 400
+
+        if target_username == "admin":
+            cur.close()
+            conn.close()
+            return "Cannot disable admin account", 400
+
+        cur.execute(
+            """
+            UPDATE users
+            SET is_disabled = TRUE
+            WHERE id = %s
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return flask.redirect(flask.url_for("admin_users_page"))
+
+    @app.route("/shared/<int:document_id>/download")
+    @login_required
+    def download_shared_document(document_id):
+        user_id = flask.session.get("user_id")
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        row = get_document_by_id(cur, document_id)
+        if not row:
+            cur.close()
+            conn.close()
+            return "Document not found", 404
+
+        if not can_access_shared_document(cur, document_id, user_id):
+            cur.close()
+            conn.close()
+            return "Forbidden", 403
+
+        stored_filename = secure_filename(row[3])
+        cur.close()
+        conn.close()
+
+        upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
+        file_path = upload_folder / stored_filename
+        if not file_path.exists() or not file_path.is_file():
+            return "Document file not found", 404
+
+        return flask.send_from_directory(
+            str(upload_folder),
+            stored_filename,
+            as_attachment=True,
+            download_name=stored_filename,
         )
 
     @app.route("/documents/upload", methods=["POST"])
@@ -187,8 +601,8 @@ def register_routes(app):
         upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
         upload_folder.mkdir(parents=True, exist_ok=True)
 
-        filename = utils.sanitize_filename(uploaded_file.filename)
-        destination = upload_folder / uploaded_file.filename
+        filename = secure_filename(uploaded_file.filename)
+        destination = upload_folder / filename
         uploaded_file.save(destination)
         metadata = extract_metadata(destination)
 
@@ -200,7 +614,7 @@ def register_routes(app):
             INSERT INTO documents (owner_id, title, filename, metadata)
             VALUES (%s, %s, %s, %s)
             """,
-            (user_id, title, uploaded_file.filename, metadata),
+            (user_id, title, filename, metadata),
         )
         conn.commit()
 

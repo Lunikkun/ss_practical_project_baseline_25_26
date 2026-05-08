@@ -77,3 +77,28 @@ th, td {
 .flash.success { background: #e3f7e8; }
 .muted { color: #666; font-size: 0.95rem; }
 .userbox a { color: #fff; }
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.badge-owned {
+  background: #e8f3ff;
+  color: #0b4f99;
+}
+
+.badge-shared {
+  background: #e9f7ee;
+  color: #1f6f43;
+}
+
+.btn-inline {
+  width: auto;
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  margin: 0;
+}

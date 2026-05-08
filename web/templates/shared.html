@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Shared with me</h2>
+  {% if documents %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Title</th>
+        <th>Filename</th>
+        <th>Download</th>
+        <th>Summary</th>
+        <th>Full</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for doc in documents %}
+      <tr>
+        <td>{{ doc.id }}</td>
+        <td>{{ doc.title }}</td>
+        <td>{{ doc.filename }}</td>
+        <td>
+          <a href="{{ url_for('download_shared_document', document_id=doc.id) }}">
+            Download
+          </a>
+        </td>
+        <td>
+          <button class="details-btn" data-title="{{ doc.title }}">
+            Summary
+          </button>
+        </td>
+        <td>
+          <a href="{{ url_for('document_details', document_id=doc.id) }}">
+            Details
+          </a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p>No shared documents found.</p>
+  {% endif %}
+</div>
+{% endblock %}

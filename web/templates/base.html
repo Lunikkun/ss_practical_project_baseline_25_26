@@ -10,7 +10,15 @@
   <header>
     <h1>Document Management Platform</h1>
     {% if session.get('username') %}
-      <div class="userbox">Logged in as <strong>{{ session.get('username') }}</strong> · <a href="{{ url_for('logout') }}">Logout</a></div>
+      <div class="userbox">
+        <a href="{{ url_for('documents_page') }}">My documents</a> ·
+        <a href="{{ url_for('shared_documents_page') }}">Shared with me</a> ·
+        {% if session.get('username') == 'admin' %}
+          <a href="{{ url_for('admin_users_page') }}">Users</a> ·
+        {% endif %}
+        Logged in as <strong>{{ session.get('username') }}</strong> ·
+        <a href="{{ url_for('logout') }}">Logout</a>
+      </div>
     {% endif %}
   </header>
 

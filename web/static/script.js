@@ -17,23 +17,37 @@ document.addEventListener("DOMContentLoaded", () => {
       }
   }
 
-    const buttons = document.querySelectorAll(".details-btn");
+  const buttons = document.querySelectorAll(".details-btn");
 
   buttons.forEach(btn => {
-
     btn.addEventListener("click", () => {
+      const title = btn.dataset.title || "";
 
-      const title = btn.dataset.title;
+      let details = document.getElementById("doc-details");
+      let titleField = document.getElementById("doc-title");
 
-      const details = document.getElementById("doc-details");
-      const titleField = document.getElementById("doc-title");
+      if (!details || !titleField) {
+        details = document.createElement("div");
+        details.id = "doc-details";
+        details.className = "card";
+
+        const heading = document.createElement("h3");
+        heading.textContent = "Document details";
+        titleField = document.createElement("p");
+        titleField.id = "doc-title";
+
+        details.appendChild(heading);
+        details.appendChild(titleField);
+
+        const parentCard = btn.closest(".card");
+        if (parentCard) {
+          parentCard.appendChild(details);
+        }
+      }
 
       details.style.display = "block";
-
-      renderTitle(title)
-
+      renderTitle(title);
     });
-
   });
 
     function renderTitle(title) {
@@ -42,7 +56,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateField(element, value) {
-      element.innerHTML = "Title: " + value;
+      if (!element) return;
+      element.textContent = "Title: " + value;
     }
 
 });

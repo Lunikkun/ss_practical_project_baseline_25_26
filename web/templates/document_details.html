@@ -8,6 +8,40 @@
   <p><strong>Owner:</strong> {{ document.owner_id }}</p>
   <p><strong>Title:</strong> {{ document.title }}</p>
   <p><strong>Filename:</strong> {{ document.filename }}</p>
+  <p>
+    <a href="{{ url_for('download_document', document_id=document.id) }}">Download</a>
+  </p>
+
+  {% if can_share %}
+    <h3>Share document</h3>
+    <form method="post" action="{{ url_for('share_document', document_id=document.id) }}">
+      <label for="shared_with">Share with user</label>
+      <select id="shared_with" name="shared_with" required>
+        <option value="" disabled selected>Select user</option>
+        {% for user in share_candidates %}
+          <option value="{{ user.id }}">{{ user.username }} (id: {{ user.id }})</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Share</button>
+    </form>
+
+    <h3>Already shared with</h3>
+    {% if share_recipients %}
+      <ul>
+        {% for recipient in share_recipients %}
+          <li>
+            {{ recipient.username }}
+            <form method="post" action="{{ url_for('revoke_document_share', document_id=document.id) }}" style="display:inline; margin-left:0.5rem;">
+              <input type="hidden" name="shared_with" value="{{ recipient.id }}">
+              <button type="submit" class="btn-inline">Revoke</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Not shared yet.</p>
+    {% endif %}
+  {% endif %}
 
 
     <h3>Metadata</h3>
