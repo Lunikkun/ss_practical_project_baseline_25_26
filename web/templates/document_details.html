@@ -15,6 +15,7 @@
   {% if can_share %}
     <h3>Share document</h3>
     <form method="post" action="{{ url_for('share_document', document_id=document.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="shared_with">Share with user</label>
       <select id="shared_with" name="shared_with" required>
         <option value="" disabled selected>Select user</option>
@@ -32,6 +33,7 @@
           <li>
             {{ recipient.username }}
             <form method="post" action="{{ url_for('revoke_document_share', document_id=document.id) }}" style="display:inline; margin-left:0.5rem;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="shared_with" value="{{ recipient.id }}">
               <button type="submit" class="btn-inline">Revoke</button>
             </form>

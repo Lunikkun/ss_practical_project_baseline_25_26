@@ -1,6 +1,6 @@
 import requests
 
-from test_utils import _login, _url, _wait_for_service
+from test_utils import _login, _url, _wait_for_service, _get_csrf_token
 
 
 def test_privilege_escalation_direct_endpoint_access():
@@ -24,6 +24,7 @@ def test_privilege_escalation_direct_endpoint_access():
 def test_privilege_escalation_admin_action_as_user():
     """
     Test escalation: tenta di disabilitare un utente come alice (POST verso /admin/users/<id>/disable).
+    Include un CSRF token valido per testare il controllo RBAC (non il CSRF).
     
     Vettore: Bypass del controllo RBAC su endpoint POST amministrativo
     Risultato atteso: 403 Forbidden
@@ -33,8 +34,10 @@ def test_privilege_escalation_admin_action_as_user():
     alice = _login("alice", "tth1mJj5?£58")
     bob_id = 3
 
+    alice_csrf = _get_csrf_token(alice, _url("/documents"))
     response = alice.post(
         _url(f"/admin/users/{bob_id}/disable"),
+        data={"csrf_token": alice_csrf},
         allow_redirects=False,
         timeout=10,
     )
@@ -55,10 +58,11 @@ def test_privilege_escalation_session_tampering_cookie_injection():
     _wait_for_service()
 
     alice_session = requests.Session()
-    
+
+    csrf_token = _get_csrf_token(alice_session, _url("/login"))
     response = alice_session.post(
         _url("/login"),
-        data={"username": "alice", "password": "tth1mJj5?£58"},
+        data={"username": "alice", "password": "tth1mJj5?£58", "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
@@ -89,8 +93,7 @@ def test_privilege_escalation_disabled_user_session_persistence():
     3. Alice prova a usare la vecchia sessione per accedere a /documents.
     
     Vettore: Sessione non invalidata al disabilitamento utente
-    Risultato atteso: Se la sessione è ancora valida, l'accesso dovrebbe essere negato
-                     (questo test verifica se il backend controlla is_disabled al ogni request)
+    Risultato atteso: Redirect a login (302) perché is_disabled viene controllato ad ogni request
     """
     _wait_for_service()
 
@@ -102,25 +105,24 @@ def test_privilege_escalation_disabled_user_session_persistence():
     alice_documents_before = alice.get(_url("/documents"), timeout=10)
     assert alice_documents_before.status_code == 200, "Alice should access /documents before disabling"
 
+    admin_csrf = _get_csrf_token(admin, _url("/admin/users"))
     disable_response = admin.post(
         _url(f"/admin/users/{alice_id}/disable"),
+        data={"csrf_token": admin_csrf},
         allow_redirects=False,
         timeout=10,
     )
     assert disable_response.status_code in (302, 303), "Admin should successfully disable alice"
 
-    alice_documents_after = alice.get(_url("/documents"), timeout=10)
-    
-    if alice_documents_after.status_code == 200:
-        print("[WARNING] Disabled user can still access /documents with old session!")
-        print("This is a security issue if sessions are not invalidated on user disable.")
-    else:
-        assert alice_documents_after.status_code in (302, 403), \
-            "Disabled user session should be rejected"
-    
+    alice_documents_after = alice.get(_url("/documents"), allow_redirects=False, timeout=10)
+    assert alice_documents_after.status_code in (302, 303), \
+        "Disabled user should be redirected to login (is_disabled checked per-request)"
+
     # Clean up: re-enable alice for subsequent tests
+    admin_csrf = _get_csrf_token(admin, _url("/admin/users"))
     admin.post(
         _url(f"/admin/users/{alice_id}/enable"),
+        data={"csrf_token": admin_csrf},
         allow_redirects=False,
         timeout=10,
     )
@@ -147,20 +149,21 @@ def test_privilege_escalation_cross_site_request_forgery_admin_action():
     Test escalation via CSRF: tenta una POST verso /admin/users/<id>/disable
     senza CSRF token per verificare se il backend valida il token.
     
-    Vettore: Mancanza di validazione CSRF token
-    Risultato atteso: 403 Forbidden o 400 Bad Request (se CSRF token è richiesto)
+    Vettore: Mancanza di validazione CSRF token (attacco cross-site)
+    Risultato atteso: 400 Bad Request (CSRF token mancante/invalido)
     """
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")
     bob_id = 3
 
+    # Simulate CSRF attack: POST without token (as a cross-site attacker would)
     post_response = alice.post(
         _url(f"/admin/users/{bob_id}/disable"),
         data={},
         allow_redirects=False,
         timeout=10,
     )
-    
-    assert post_response.status_code == 403, \
-        f"Expected 403 for unauthorized admin action, got {post_response.status_code}"
+
+    assert post_response.status_code in (400, 403), \
+        f"Expected 400 (CSRF rejected) or 403 (RBAC), got {post_response.status_code}"

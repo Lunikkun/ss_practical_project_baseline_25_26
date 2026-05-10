@@ -1,6 +1,6 @@
 import requests
 
-from test_utils import _url, _wait_for_service
+from test_utils import _url, _wait_for_service, _get_csrf_token
 
 
 def test_login_logout_flow():
@@ -19,11 +19,13 @@ def test_login_logout_flow():
     # ------------------------------------------------------------
     # Login
     # ------------------------------------------------------------
+    csrf_token = _get_csrf_token(session, _url("/login"))
     login_resp = session.post(
         _url("/login"),
         data={
             "username": "alice",
             "password": "tth1mJj5?£58",
+            "csrf_token": csrf_token,
         },
         allow_redirects=False,
         timeout=10,

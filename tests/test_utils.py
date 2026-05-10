@@ -14,6 +14,8 @@ import requests
 
 
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
+LOGIN_IP_RATE_WINDOW = int(os.getenv("LOGIN_IP_RATE_WINDOW", "60"))
+UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
 
 
 def _url(path: str) -> str:
@@ -35,15 +37,36 @@ def _wait_for_service(timeout: int = 30):
     raise RuntimeError("Service not available")
 
 
+def _get_csrf_token(session: requests.Session, url: str) -> str:
+    """GET a URL and extract the CSRF token from the hidden form input."""
+    response = session.get(url, timeout=10)
+    assert response.status_code == 200, f"Could not GET {url}: {response.status_code}"
+    match = re.search(r'<input[^>]+name="csrf_token"[^>]+value="([^"]+)"', response.text)
+    assert match is not None, f"No CSRF token found on {url}"
+    return match.group(1)
+
+
 def _login(username: str, password: str) -> requests.Session:
     """Login with username/password and return authenticated session."""
     session = requests.Session()
+    csrf_token = _get_csrf_token(session, _url("/login"))
     response = session.post(
         _url("/login"),
-        data={"username": username, "password": password},
+        data={"username": username, "password": password, "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
+
+    if response.status_code == 429:
+        time.sleep(LOGIN_IP_RATE_WINDOW + 1)
+        csrf_token = _get_csrf_token(session, _url("/login"))
+        response = session.post(
+            _url("/login"),
+            data={"username": username, "password": password, "csrf_token": csrf_token},
+            allow_redirects=False,
+            timeout=10,
+        )
+
     assert response.status_code in (302, 303), \
         f"Login failed for {username}: got {response.status_code}"
     return session
@@ -51,13 +74,26 @@ def _login(username: str, password: str) -> requests.Session:
 
 def _upload_document(session: requests.Session, title: str, filename: str, content: bytes):
     """Upload a document with given title and filename."""
+    csrf_token = _get_csrf_token(session, _url("/documents"))
     response = session.post(
         _url("/documents/upload"),
-        data={"title": title},
+        data={"title": title, "csrf_token": csrf_token},
         files={"document": (filename, io.BytesIO(content), "text/plain")},
         allow_redirects=False,
         timeout=10,
     )
+
+    if response.status_code == 429:
+        time.sleep(UPLOAD_RATE_WINDOW + 1)
+        csrf_token = _get_csrf_token(session, _url("/documents"))
+        response = session.post(
+            _url("/documents/upload"),
+            data={"title": title, "csrf_token": csrf_token},
+            files={"document": (filename, io.BytesIO(content), "text/plain")},
+            allow_redirects=False,
+            timeout=10,
+        )
+
     assert response.status_code in (302, 303), \
         f"Upload failed: got {response.status_code}"
 
@@ -90,3 +126,4 @@ def _extract_user_id_from_admin_page(page_html: str, username: str) -> int:
     match = re.search(pattern, page_html)
     assert match is not None, f"User {username} not found in admin page"
     return int(match.group(1))
+

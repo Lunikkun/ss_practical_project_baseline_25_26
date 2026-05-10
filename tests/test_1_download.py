@@ -19,4 +19,4 @@ def test_download_document_requires_authorized_access():
 
     bob = _login("bob", "De586:Iq6}?!")
     forbidden_download = bob.get(_url(f"/documents/{document_id}/download"), timeout=10)
-    assert forbidden_download.status_code == 403
+    assert forbidden_download.status_code == 404

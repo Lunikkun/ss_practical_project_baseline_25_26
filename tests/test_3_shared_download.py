@@ -7,6 +7,7 @@ from test_utils import (
     _upload_document,
     _find_document_id,
     _find_user_id_from_share_form,
+    _get_csrf_token,
 )
 
 
@@ -22,9 +23,10 @@ def test_shared_download_requires_active_share():
 
     bob_id = _find_user_id_from_share_form(alice, document_id, "bob")
 
+    csrf_token = _get_csrf_token(alice, _url(f"/documents/{document_id}"))
     share_response = alice.post(
         _url(f"/documents/{document_id}/share"),
-        data={"shared_with": str(bob_id)},
+        data={"shared_with": str(bob_id), "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
@@ -36,13 +38,14 @@ def test_shared_download_requires_active_share():
     assert shared_download.status_code == 200
     assert shared_download.content == file_content
 
+    csrf_token = _get_csrf_token(alice, _url(f"/documents/{document_id}"))
     revoke_response = alice.post(
         _url(f"/documents/{document_id}/revoke"),
-        data={"shared_with": str(bob_id)},
+        data={"shared_with": str(bob_id), "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
     assert revoke_response.status_code in (302, 303)
 
     shared_download_after_revoke = bob.get(_url(f"/shared/{document_id}/download"), timeout=10)
-    assert shared_download_after_revoke.status_code == 403
+    assert shared_download_after_revoke.status_code == 404

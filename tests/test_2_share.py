@@ -7,6 +7,7 @@ from test_utils import (
     _upload_document,
     _find_document_id,
     _find_user_id_from_share_form,
+    _get_csrf_token,
 )
 
 
@@ -22,9 +23,10 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
 
     bob_id = _find_user_id_from_share_form(alice, document_id, "bob")
 
+    csrf_token = _get_csrf_token(alice, _url(f"/documents/{document_id}"))
     share_response = alice.post(
         _url(f"/documents/{document_id}/share"),
-        data={"shared_with": str(bob_id)},
+        data={"shared_with": str(bob_id), "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
@@ -42,9 +44,10 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
     bob_details = bob.get(_url(f"/documents/{document_id}"), timeout=10)
     assert bob_details.status_code == 200
 
+    csrf_token = _get_csrf_token(alice, _url(f"/documents/{document_id}"))
     revoke_response = alice.post(
         _url(f"/documents/{document_id}/revoke"),
-        data={"shared_with": str(bob_id)},
+        data={"shared_with": str(bob_id), "csrf_token": csrf_token},
         allow_redirects=False,
         timeout=10,
     )
@@ -55,11 +58,12 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
     assert unique_title not in bob_shared_after_revoke.text
 
     bob_details_after_revoke = bob.get(_url(f"/documents/{document_id}"), timeout=10)
-    assert bob_details_after_revoke.status_code == 403
+    assert bob_details_after_revoke.status_code == 404
 
+    bob_csrf_token = _get_csrf_token(bob, _url("/documents"))
     forbidden_share = bob.post(
         _url(f"/documents/{document_id}/share"),
-        data={"shared_with": "1"},
+        data={"shared_with": "1", "csrf_token": bob_csrf_token},
         timeout=10,
     )
-    assert forbidden_share.status_code == 403
+    assert forbidden_share.status_code == 404

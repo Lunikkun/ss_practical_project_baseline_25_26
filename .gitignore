@@ -53,3 +53,5 @@ web/uploads/*
 
 *.pdf
 *.md
+
+report/

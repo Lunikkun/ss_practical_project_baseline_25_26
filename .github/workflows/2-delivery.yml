@@ -120,7 +120,7 @@ jobs:
       - name: Show container logs on failure
         if: failure()
         run: |
-          docker compose -f docker-compose.deploy.yml logs
+          docker compose -f docker-compose.deploy.yml logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh
 
       - name: Stop delivery environment
         if: always()

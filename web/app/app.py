@@ -1,9 +1,15 @@
 import functools
 import pathlib
 import os
+import hashlib
+import re
+import shutil
+import threading
+import time
 import psycopg2
 import flask
 import dotenv
+from flask_wtf.csrf import CSRFProtect
 from . import db
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
@@ -20,6 +26,27 @@ DB_NAME = os.getenv("DB_NAME")
 
 UPLOAD_FOLDER = "uploads"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES"))
+
+# Brute force protection
+_auth_lock = threading.Lock()
+_ip_rate_state: dict = {}      # ip → {"count": int, "window_start": float}
+_account_lock_state: dict = {} # username → {"failures": int, "locked_until": float}
+_upload_lock = threading.Lock()
+_upload_rate_state: dict = {}  # user_id -> {"count": int, "window_start": float}
+
+LOGIN_IP_RATE_LIMIT = int(os.getenv("LOGIN_IP_RATE_LIMIT", "50"))        # requests per minute per IP
+LOGIN_IP_RATE_WINDOW = 60                                                   # seconds
+LOGIN_LOCKOUT_THRESHOLD = int(os.getenv("LOGIN_LOCKOUT_THRESHOLD", "5"))  # failures before lockout
+LOGIN_LOCKOUT_DURATION = int(os.getenv("LOGIN_LOCKOUT_DURATION", "300"))  # lockout seconds (5 min)
+FORCE_HTTPS = os.getenv("FORCE_HTTPS", "0") == "1"
+HSTS_MAX_AGE = int(os.getenv("HSTS_MAX_AGE", "31536000"))
+MAX_SEARCH_QUERY_LENGTH = int(os.getenv("MAX_SEARCH_QUERY_LENGTH", "100"))
+UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "25"))
+UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
+USER_MAX_FILES = int(os.getenv("USER_MAX_FILES", "0"))
+USER_STORAGE_QUOTA_BYTES = int(os.getenv("USER_STORAGE_QUOTA_BYTES", "0"))
+GLOBAL_STORAGE_QUOTA_BYTES = int(os.getenv("GLOBAL_STORAGE_QUOTA_BYTES", "0"))
+MIN_FREE_DISK_BYTES = int(os.getenv("MIN_FREE_DISK_BYTES", "10485760"))
 DISALLOWED_UPLOAD_EXTENSIONS = {
     ".bat",
     ".bin",
@@ -69,7 +96,17 @@ def create_app():
     app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
     app.config["MAX_UPLOAD_BYTES"] = MAX_UPLOAD_BYTES
+    app.config["WTF_CSRF_TIME_LIMIT"] = None
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+    secure_cookie_from_env = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+    app.config["SESSION_COOKIE_SECURE"] = secure_cookie_from_env or FORCE_HTTPS
+    if app.config["SESSION_COOKIE_SECURE"]:
+        app.config["SESSION_COOKIE_NAME"] = "__Host-session"
+    app.config["FORCE_HTTPS"] = FORCE_HTTPS
+    app.config["HSTS_MAX_AGE"] = HSTS_MAX_AGE
 
+    CSRFProtect(app)
     register_routes(app)
 
     return app
@@ -96,6 +133,39 @@ def get_shared_documents_for_user(cur, user_id):
         (user_id,),
     )
     return cur.fetchall()
+
+
+def get_upload_folder_path() -> pathlib.Path:
+    return BASE_DIR / UPLOAD_FOLDER
+
+
+def get_total_storage_usage_bytes(upload_folder: pathlib.Path) -> int:
+    total = 0
+    if not upload_folder.exists():
+        return total
+    for entry in upload_folder.iterdir():
+        if entry.is_file():
+            total += entry.stat().st_size
+    return total
+
+
+def get_user_storage_usage_bytes(cur, user_id: int, upload_folder: pathlib.Path):
+    cur.execute(
+        """
+        SELECT filename
+        FROM documents
+        WHERE owner_id = %s
+        """,
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    unique_filenames = {secure_filename(row[0]) for row in rows if row and row[0]}
+    total = 0
+    for filename in unique_filenames:
+        file_path = upload_folder / filename
+        if file_path.exists() and file_path.is_file():
+            total += file_path.stat().st_size
+    return len(rows), total
 
 def extract_metadata(filename):
     path = pathlib.Path(filename)
@@ -216,7 +286,118 @@ def login_required(fn):
 
     return wrapper
 
+
+def get_client_ip():
+    forwarded_for = flask.request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return flask.request.remote_addr or "unknown"
+
+
+def get_ip_bucket(ip_address: str) -> str:
+    if "." in ip_address:
+        parts = ip_address.split(".")
+        if len(parts) == 4:
+            return ".".join(parts[:3])
+    return ip_address
+
+
+def build_session_fingerprint():
+    ip_bucket = get_ip_bucket(get_client_ip())
+    user_agent = flask.request.headers.get("User-Agent", "")
+    raw_fingerprint = f"{ip_bucket}|{user_agent}"
+    return hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()
+
+
+_SQLI_SIGNATURE_RE = re.compile(
+    r"(?:union\s+select|select\s+.+\s+from|or\s+1\s*=\s*1|--|/\*|;|information_schema)",
+    re.IGNORECASE,
+)
+
+_XSS_TITLE_SIGNATURE_RE = re.compile(
+    r"(?:<\s*/?\s*script\b|javascript:|on\w+\s*=|<|>)",
+    re.IGNORECASE,
+)
+
+
+def normalize_search_query(raw_query: str) -> str:
+    # Keep only a bounded, trimmed value to reduce parser abuse and log noise.
+    return (raw_query or "").strip()[:MAX_SEARCH_QUERY_LENGTH]
+
+
+def is_suspicious_search_query(query: str) -> bool:
+    return bool(_SQLI_SIGNATURE_RE.search(query))
+
+
+def is_safe_document_title(title: str) -> bool:
+    normalized = (title or "").strip()
+    if not normalized:
+        return False
+    return _XSS_TITLE_SIGNATURE_RE.search(normalized) is None
+
 def register_routes(app):
+
+    def log_denied_document_access(action: str, document_id: int, status_code: int):
+        app.logger.warning(
+            "Denied document access action=%s doc_id=%s user_id=%s ip=%s status=%s",
+            action,
+            document_id,
+            flask.session.get("user_id", "anonymous"),
+            get_client_ip(),
+            status_code,
+        )
+
+    @app.before_request
+    def enforce_https():
+        if not app.config.get("FORCE_HTTPS"):
+            return
+        if flask.request.path == "/health":
+            return
+
+        proto = flask.request.headers.get("X-Forwarded-Proto", "http")
+        if flask.request.is_secure or proto == "https":
+            return
+
+        secure_url = flask.request.url.replace("http://", "https://", 1)
+        return flask.redirect(secure_url, code=301)
+
+    @app.before_request
+    def check_user_disabled():
+        if "user_id" not in flask.session:
+            return
+
+        expected_fingerprint = flask.session.get("session_fp")
+        current_fingerprint = build_session_fingerprint()
+        if not expected_fingerprint or expected_fingerprint != current_fingerprint:
+            flask.session.clear()
+            flask.flash("Session invalidated. Please log in again.", "error")
+            return flask.redirect(flask.url_for("login"))
+
+        conn = get_db()
+        cur = conn.cursor()
+        user = get_user_by_id(cur, flask.session["user_id"])
+        cur.close()
+        conn.close()
+        if user and user[2]:
+            flask.session.clear()
+            return flask.redirect(flask.url_for("login"))
+
+    @app.after_request
+    def set_security_headers(response):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        response.headers["Strict-Transport-Security"] = f"max-age={app.config['HSTS_MAX_AGE']}; includeSubDomains"
+
+        # Avoid serving stale authenticated content after permission revocation.
+        if flask.session.get("user_id"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
+        return response
 
     @app.route("/")
     def index():
@@ -228,22 +409,65 @@ def register_routes(app):
     def login():
 
         if flask.request.method == "POST":
-            username = flask.request.form.get("username", "")
+            username = flask.request.form.get("username", "").strip()
             password = flask.request.form.get("password", "")
+            client_ip = flask.request.remote_addr or "unknown"
+            now = time.time()
 
+            # --- IP-based rate limiting ---
+            with _auth_lock:
+                ip_entry = _ip_rate_state.setdefault(
+                    client_ip, {"count": 0, "window_start": now}
+                )
+                if now - ip_entry["window_start"] > LOGIN_IP_RATE_WINDOW:
+                    ip_entry["count"] = 0
+                    ip_entry["window_start"] = now
+                ip_entry["count"] += 1
+                ip_rate_exceeded = ip_entry["count"] > LOGIN_IP_RATE_LIMIT
+
+            if ip_rate_exceeded:
+                flask.flash("Too many requests. Please try again later.", "error")
+                return flask.render_template("login.html"), 429
+
+            # --- Account lockout check ---
+            with _auth_lock:
+                acc_entry = _account_lock_state.get(username)
+                account_locked = acc_entry is not None and acc_entry["locked_until"] > now
+
+            if account_locked:
+                flask.flash("Account temporarily locked. Try again later.", "error")
+                return flask.render_template("login.html"), 429
+
+            # --- Authentication (constant-time: always query DB and always verify) ---
             conn = get_db()
             cur = conn.cursor()
-
             user = db.get_user_by_username(cur, username)
-
             cur.close()
             conn.close()
 
-            if user and verify_password(user[2], password) and not user[3]:
+            # Always call verify_password to prevent timing-based user enumeration
+            dummy_hash = "pbkdf2:sha256:600000$dummy$" + "a" * 64
+            candidate_hash = user[2] if user else dummy_hash
+            password_ok = verify_password(candidate_hash, password)
+
+            if user and password_ok and not user[3]:
+                with _auth_lock:
+                    _account_lock_state.pop(username, None)
                 flask.session.clear()
                 flask.session["user_id"] = user[0]
                 flask.session["username"] = user[1]
+                flask.session["session_fp"] = build_session_fingerprint()
                 return flask.redirect(flask.url_for("documents_page"))
+
+            # --- Track failed attempt ---
+            with _auth_lock:
+                acc = _account_lock_state.setdefault(
+                    username, {"failures": 0, "locked_until": 0.0}
+                )
+                acc["failures"] += 1
+                if acc["failures"] >= LOGIN_LOCKOUT_THRESHOLD:
+                    acc["locked_until"] = time.time() + LOGIN_LOCKOUT_DURATION
+                    acc["failures"] = 0
 
             flask.flash("Invalid credentials.", "error")
 
@@ -265,7 +489,8 @@ def register_routes(app):
         if row and not can_access_document(cur, document_id, user_id):
             cur.close()
             conn.close()
-            return "Forbidden", 403
+            log_denied_document_access("details", document_id, 404)
+            return "Document not found", 404
 
         users = get_users(cur) if row else []
         share_recipients = get_share_recipients_for_document(cur, document_id) if row else []
@@ -323,7 +548,8 @@ def register_routes(app):
         if not (is_admin_session() or user_id == owner_id):
             cur.close()
             conn.close()
-            return "Forbidden", 403
+            log_denied_document_access("share", document_id, 404)
+            return "Document not found", 404
 
         if shared_with == owner_id:
             cur.close()
@@ -391,7 +617,8 @@ def register_routes(app):
         if not (is_admin_session() or user_id == owner_id):
             cur.close()
             conn.close()
-            return "Forbidden", 403
+            log_denied_document_access("revoke", document_id, 404)
+            return "Document not found", 404
 
         cur.execute(
             """
@@ -423,7 +650,8 @@ def register_routes(app):
         if not can_access_document(cur, document_id, user_id):
             cur.close()
             conn.close()
-            return "Forbidden", 403
+            log_denied_document_access("download", document_id, 404)
+            return "Document not found", 404
 
         stored_filename = secure_filename(row[3])
         cur.close()
@@ -445,6 +673,16 @@ def register_routes(app):
     @login_required
     def documents_page():
         current_user_id = flask.session.get("user_id")
+        search_query = normalize_search_query(flask.request.args.get("search", ""))
+
+        if search_query and is_suspicious_search_query(search_query):
+            app.logger.warning(
+                "Blocked suspicious search payload user_id=%s ip=%s query=%r",
+                current_user_id,
+                get_client_ip(),
+                search_query,
+            )
+            return "Invalid search query", 400
 
         conn = get_db()
         cur = conn.cursor()
@@ -464,18 +702,35 @@ def register_routes(app):
             for d in docs
         ]
 
+        if search_query:
+            search_lower = search_query.lower()
+            documents = [
+                d for d in documents if search_lower in d["title"].lower() or search_lower in d["filename"].lower()
+            ]
+
         return flask.render_template(
             "documents.html",
             documents=documents,
             requested_user_id=current_user_id,
             current_user_id=current_user_id,
             username=flask.session.get("username"),
+            search_query=search_query,
         )
 
     @app.route("/shared")
     @login_required
     def shared_documents_page():
         current_user_id = flask.session.get("user_id")
+        search_query = normalize_search_query(flask.request.args.get("search", ""))
+
+        if search_query and is_suspicious_search_query(search_query):
+            app.logger.warning(
+                "Blocked suspicious shared-search payload user_id=%s ip=%s query=%r",
+                current_user_id,
+                get_client_ip(),
+                search_query,
+            )
+            return "Invalid search query", 400
 
         conn = get_db()
         cur = conn.cursor()
@@ -493,11 +748,18 @@ def register_routes(app):
             for d in shared_docs
         ]
 
+        if search_query:
+            search_lower = search_query.lower()
+            documents = [
+                d for d in documents if search_lower in d["title"].lower() or search_lower in d["filename"].lower()
+            ]
+
         return flask.render_template(
             "shared.html",
             documents=documents,
             current_user_id=current_user_id,
             username=flask.session.get("username"),
+            search_query=search_query,
         )
 
     @app.route("/admin/users")
@@ -611,7 +873,8 @@ def register_routes(app):
         if not can_access_shared_document(cur, document_id, user_id):
             cur.close()
             conn.close()
-            return "Forbidden", 403
+            log_denied_document_access("shared_download", document_id, 404)
+            return "Document not found", 404
 
         stored_filename = secure_filename(row[3])
         cur.close()
@@ -636,6 +899,29 @@ def register_routes(app):
         title = flask.request.form.get("title", "Untitled").strip() or "Untitled"
         uploaded_file = flask.request.files.get("document")
 
+        now = time.time()
+        with _upload_lock:
+            rate_entry = _upload_rate_state.setdefault(user_id, {"count": 0, "window_start": now})
+            if now - rate_entry["window_start"] > UPLOAD_RATE_WINDOW:
+                rate_entry["count"] = 0
+                rate_entry["window_start"] = now
+            rate_entry["count"] += 1
+            upload_rate_exceeded = rate_entry["count"] > UPLOAD_RATE_LIMIT
+
+        if upload_rate_exceeded:
+            app.logger.warning(
+                "Upload rate limit exceeded user_id=%s ip=%s count=%s window=%s",
+                user_id,
+                get_client_ip(),
+                UPLOAD_RATE_LIMIT,
+                UPLOAD_RATE_WINDOW,
+            )
+            return "Too many upload requests. Please slow down.", 429
+
+        if not is_safe_document_title(title):
+            flask.flash("Invalid document title.", "error")
+            return flask.redirect(flask.url_for("documents_page"))
+
         if not uploaded_file or uploaded_file.filename == "":
             flask.flash("Please choose a file.", "error")
             return flask.redirect(flask.url_for("documents_page"))
@@ -646,6 +932,11 @@ def register_routes(app):
             return flask.redirect(flask.url_for("documents_page"))
 
         filename = sanitized_or_message
+        upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
+        upload_folder.mkdir(parents=True, exist_ok=True)
+
+        current_storage_usage = get_total_storage_usage_bytes(upload_folder)
+
         uploaded_file.stream.seek(0, os.SEEK_END)
         file_size = uploaded_file.stream.tell()
         uploaded_file.stream.seek(0)
@@ -654,15 +945,61 @@ def register_routes(app):
             flask.flash("File too large.", "error")
             return flask.redirect(flask.url_for("documents_page"))
 
-        upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
-        upload_folder.mkdir(parents=True, exist_ok=True)
+        if GLOBAL_STORAGE_QUOTA_BYTES > 0 and current_storage_usage + file_size > GLOBAL_STORAGE_QUOTA_BYTES:
+            app.logger.warning(
+                "Global storage quota exceeded user_id=%s ip=%s usage=%s requested=%s quota=%s",
+                user_id,
+                get_client_ip(),
+                current_storage_usage,
+                file_size,
+                GLOBAL_STORAGE_QUOTA_BYTES,
+            )
+            return "Storage temporarily full. Please try again later.", 507
+
+        disk_free_bytes = shutil.disk_usage(upload_folder).free
+        if MIN_FREE_DISK_BYTES > 0 and disk_free_bytes < MIN_FREE_DISK_BYTES:
+            app.logger.warning(
+                "Low disk space upload blocked user_id=%s ip=%s free=%s threshold=%s",
+                user_id,
+                get_client_ip(),
+                disk_free_bytes,
+                MIN_FREE_DISK_BYTES,
+            )
+            return "Storage temporarily unavailable.", 507
 
         destination = upload_folder / filename
-        uploaded_file.save(destination)
-        metadata = extract_metadata(destination)
 
         conn = get_db()
         cur = conn.cursor()
+
+        user_file_count, user_storage_usage = get_user_storage_usage_bytes(cur, user_id, upload_folder)
+        if USER_MAX_FILES > 0 and user_file_count >= USER_MAX_FILES:
+            cur.close()
+            conn.close()
+            app.logger.warning(
+                "User file quota exceeded user_id=%s ip=%s count=%s quota=%s",
+                user_id,
+                get_client_ip(),
+                user_file_count,
+                USER_MAX_FILES,
+            )
+            return "Upload quota exceeded.", 429
+
+        if USER_STORAGE_QUOTA_BYTES > 0 and user_storage_usage + file_size > USER_STORAGE_QUOTA_BYTES:
+            cur.close()
+            conn.close()
+            app.logger.warning(
+                "User storage quota exceeded user_id=%s ip=%s usage=%s requested=%s quota=%s",
+                user_id,
+                get_client_ip(),
+                user_storage_usage,
+                file_size,
+                USER_STORAGE_QUOTA_BYTES,
+            )
+            return "Upload quota exceeded.", 429
+
+        uploaded_file.save(destination)
+        metadata = extract_metadata(destination)
 
         cur.execute(
             """
