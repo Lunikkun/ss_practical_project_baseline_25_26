@@ -1,8 +1,6 @@
 
-import os
-
 def call(cmd):
-    return os.popen(cmd).read()
+    raise RuntimeError("Shell command execution is disabled")
 
 def build(*args):
     return " ".join(args)

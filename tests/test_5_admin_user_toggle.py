@@ -1,47 +1,6 @@
-import os
-import re
-import time
-
 import requests
 
-
-BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
-
-
-def _url(path: str) -> str:
-    return f"{BASE_URL}/{path.lstrip('/')}"
-
-
-def _wait_for_service(timeout: int = 30):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            response = requests.get(_url("/health"), timeout=2)
-            if response.ok:
-                return
-        except requests.RequestException:
-            pass
-        time.sleep(1)
-    raise RuntimeError("Service not available")
-
-
-def _login(username: str, password: str) -> requests.Session:
-    session = requests.Session()
-    response = session.post(
-        _url("/login"),
-        data={"username": username, "password": password},
-        allow_redirects=False,
-        timeout=10,
-    )
-    assert response.status_code in (302, 303)
-    return session
-
-
-def _extract_user_id_from_admin_page(page_html: str, username: str) -> int:
-    pattern = rf"<td>(\d+)</td>\s*<td>{re.escape(username)}</td>"
-    match = re.search(pattern, page_html)
-    assert match is not None, f"User {username} not found in admin users table"
-    return int(match.group(1))
+from test_utils import _login, _url, _wait_for_service, _extract_user_id_from_admin_page
 
 
 def test_admin_enable_disable_endpoints_enforce_rbac_and_toggle_user_status():

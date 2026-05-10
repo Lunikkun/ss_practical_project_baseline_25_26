@@ -48,3 +48,8 @@ web/uploads/*
 # -------------------------
 *.pid
 *.tmp
+
+#UTILS
+
+*.pdf
+*.md

@@ -1,73 +1,13 @@
-import io
-import os
-import re
-import time
 import uuid
 
-import requests
-
-
-BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
-
-
-def _url(path: str) -> str:
-    return f"{BASE_URL}/{path.lstrip('/')}"
-
-
-def _wait_for_service(timeout: int = 30):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            response = requests.get(_url("/health"), timeout=2)
-            if response.ok:
-                return
-        except requests.RequestException:
-            pass
-        time.sleep(1)
-    raise RuntimeError("Service not available")
-
-
-def _login(username: str, password: str) -> requests.Session:
-    session = requests.Session()
-    response = session.post(
-        _url("/login"),
-        data={"username": username, "password": password},
-        allow_redirects=False,
-        timeout=10,
-    )
-    assert response.status_code in (302, 303)
-    return session
-
-
-def _upload_document(session: requests.Session, title: str, filename: str, content: bytes):
-    response = session.post(
-        _url("/documents/upload"),
-        data={"title": title},
-        files={"document": (filename, io.BytesIO(content), "text/plain")},
-        allow_redirects=False,
-        timeout=10,
-    )
-    assert response.status_code in (302, 303)
-
-
-def _find_document_id(session: requests.Session, title: str) -> int:
-    response = session.get(_url("/documents"), timeout=10)
-    assert response.status_code == 200
-
-    pattern = rf"<td>(\d+)</td>\s*<td>{re.escape(title)}</td>"
-    match = re.search(pattern, response.text)
-    assert match is not None, "Uploaded document not found in listing"
-    return int(match.group(1))
-
-
-def _find_user_id_from_share_form(session: requests.Session, document_id: int, username: str) -> int:
-    response = session.get(_url(f"/documents/{document_id}"), timeout=10)
-    assert response.status_code == 200
-
-    pattern = rf"<option value=\"(\d+)\">{re.escape(username)} \(id: \d+\)</option>"
-    match = re.search(pattern, response.text)
-    assert match is not None, f"User {username} not found in share options"
-    return int(match.group(1))
+from test_utils import (
+    _login,
+    _url,
+    _wait_for_service,
+    _upload_document,
+    _find_document_id,
+    _find_user_id_from_share_form,
+)
 
 
 def test_share_document_requires_owner_or_admin_and_enables_access_for_target_user():
@@ -76,7 +16,7 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
     unique_title = f"step2-share-{uuid.uuid4().hex[:8]}"
     file_content = b"step2 share endpoint test"
 
-    alice = _login("alice", "tth1mJj5?\u00a358")
+    alice = _login("alice", "tth1mJj5?£58")
     _upload_document(alice, unique_title, "step2.txt", file_content)
     document_id = _find_document_id(alice, unique_title)
 

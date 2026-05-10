@@ -12,13 +12,42 @@ dotenv.load_dotenv()
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
-DB_HOST = os.getenv("DB_HOST", "db")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
-DB_NAME = os.getenv("DB_NAME", "docdb")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
 
 UPLOAD_FOLDER = "uploads"
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES"))
+DISALLOWED_UPLOAD_EXTENSIONS = {
+    ".bat",
+    ".bin",
+    ".cjs",
+    ".cmd",
+    ".com",
+    ".dll",
+    ".exe",
+    ".htm",
+    ".html",
+    ".js",
+    ".jsp",
+    ".jspx",
+    ".mjs",
+    ".msi",
+    ".php",
+    ".php3",
+    ".php4",
+    ".php5",
+    ".phtml",
+    ".pl",
+    ".py",
+    ".pyc",
+    ".rb",
+    ".sh",
+    ".svg",
+    ".war",
+}
 
 def get_db():
     return psycopg2.connect(
@@ -36,8 +65,10 @@ def create_app():
         static_folder=str(BASE_DIR / "static"),
     )
 
-    app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+    app.secret_key = os.getenv("SECRET_KEY")
     app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+    app.config["MAX_UPLOAD_BYTES"] = MAX_UPLOAD_BYTES
 
     register_routes(app)
 
@@ -70,6 +101,17 @@ def extract_metadata(filename):
     path = pathlib.Path(filename)
     stats = path.stat()
     return f"size={stats.st_size}, modified={stats.st_mtime}"
+
+def is_safe_upload(filename):
+    sanitized_name = secure_filename(filename or "")
+    if not sanitized_name:
+        return False, "Invalid file name."
+
+    extension = pathlib.Path(sanitized_name).suffix.lower()
+    if extension in DISALLOWED_UPLOAD_EXTENSIONS:
+        return False, "File type not allowed."
+
+    return True, sanitized_name
 
 def get_document_by_id(cur, document_id):
     cur.execute(
@@ -591,17 +633,30 @@ def register_routes(app):
     @login_required
     def upload_document():
         user_id = flask.session.get("user_id")
-        title = flask.request.form.get("title", "Untitled")
+        title = flask.request.form.get("title", "Untitled").strip() or "Untitled"
         uploaded_file = flask.request.files.get("document")
 
         if not uploaded_file or uploaded_file.filename == "":
             flask.flash("Please choose a file.", "error")
             return flask.redirect(flask.url_for("documents_page"))
 
+        is_valid_upload, sanitized_or_message = is_safe_upload(uploaded_file.filename)
+        if not is_valid_upload:
+            flask.flash(sanitized_or_message, "error")
+            return flask.redirect(flask.url_for("documents_page"))
+
+        filename = sanitized_or_message
+        uploaded_file.stream.seek(0, os.SEEK_END)
+        file_size = uploaded_file.stream.tell()
+        uploaded_file.stream.seek(0)
+
+        if file_size > app.config["MAX_UPLOAD_BYTES"]:
+            flask.flash("File too large.", "error")
+            return flask.redirect(flask.url_for("documents_page"))
+
         upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
         upload_folder.mkdir(parents=True, exist_ok=True)
 
-        filename = secure_filename(uploaded_file.filename)
         destination = upload_folder / filename
         uploaded_file.save(destination)
         metadata = extract_metadata(destination)
