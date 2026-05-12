@@ -108,19 +108,24 @@ jobs:
       - name: Run DAST gate (OWASP ZAP Baseline)
         run: |
           mkdir -p "$RUNNER_TEMP/zap-report"
-          chmod 777 "$RUNNER_TEMP/zap-report"
 
-          docker run --rm --network host \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/zap/wrk \
-            -v "$RUNNER_TEMP/zap-report:/zap/wrk:rw" \
+          zap_container="zap-baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker create --name "$zap_container" --network host \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t http://localhost:8000 \
-            -J zap-baseline.json \
-            -w zap-baseline.md \
-            -r zap-baseline.html \
-            -m 3 || true
+            -J /zap/wrk/zap-baseline.json \
+            -w /zap/wrk/zap-baseline.md \
+            -r /zap/wrk/zap-baseline.html \
+            -m 3 > /dev/null
+
+          docker start -a "$zap_container" || true
+
+          docker cp "$zap_container:/zap/wrk/zap-baseline.json" "$RUNNER_TEMP/zap-report/zap-baseline.json" || true
+          docker cp "$zap_container:/zap/wrk/zap-baseline.md" "$RUNNER_TEMP/zap-report/zap-baseline.md" || true
+          docker cp "$zap_container:/zap/wrk/zap-baseline.html" "$RUNNER_TEMP/zap-report/zap-baseline.html" || true
+
+          docker rm "$zap_container" > /dev/null || true
 
           python - <<'PY'
           import json
