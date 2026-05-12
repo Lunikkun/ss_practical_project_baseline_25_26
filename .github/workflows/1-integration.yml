@@ -112,6 +112,7 @@ jobs:
 
           docker run --rm --network host \
             --user "$(id -u):$(id -g)" \
+            -e HOME=/zap/wrk \
             -v "$RUNNER_TEMP/zap-report:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
