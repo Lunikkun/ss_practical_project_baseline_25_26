@@ -107,13 +107,24 @@ jobs:
 
       - name: Run DAST gate (OWASP ZAP Baseline)
         run: |
-          docker run --rm --network host -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+          mkdir -p "$RUNNER_TEMP/zap/report"
+
+          docker run --rm --network host -v "$RUNNER_TEMP/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t http://localhost:8000 \
-            -J /zap/wrk/report/zap-baseline.json \
-            -w /zap/wrk/report/zap-baseline.md \
-            -r /zap/wrk/report/zap-baseline.html \
+            -J report/zap-baseline.json \
+            -w report/zap-baseline.md \
+            -r report/zap-baseline.html \
             -m 3 || true
+
+          mkdir -p report
+          for ext in json md html; do
+            src="$RUNNER_TEMP/zap/report/zap-baseline.${ext}"
+            dst="report/zap-baseline.${ext}"
+            if [ -f "$src" ]; then
+              cp "$src" "$dst"
+            fi
+          done
 
           python - <<'PY'
           import json
