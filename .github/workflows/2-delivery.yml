@@ -61,6 +61,18 @@ jobs:
           echo "web_image=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.namespace }}/${{ env.WEB_IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
           echo "db_image=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.namespace }}/${{ env.DB_IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify deliverable images exist
+        run: |
+          docker manifest inspect "${{ steps.image-refs.outputs.web_image }}" > /dev/null || {
+            echo "Missing web image: ${{ steps.image-refs.outputs.web_image }}"
+            exit 1
+          }
+
+          docker manifest inspect "${{ steps.image-refs.outputs.db_image }}" > /dev/null || {
+            echo "Missing db image: ${{ steps.image-refs.outputs.db_image }}"
+            exit 1
+          }
+
       - name: Pull deliverable images
         run: |
           docker pull "${{ steps.image-refs.outputs.web_image }}"
@@ -122,10 +134,16 @@ jobs:
 
       - name: Show container logs on failure
         if: failure()
+        env:
+          WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
+          DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
         run: |
           docker compose -f docker-compose.deploy.yml logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh
 
       - name: Stop delivery environment
         if: always()
+        env:
+          WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
+          DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
         run: |
           docker compose -f docker-compose.deploy.yml down -v --remove-orphans
