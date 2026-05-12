@@ -108,7 +108,7 @@ def test_privilege_escalation_disabled_user_session_persistence():
     admin_csrf = _get_csrf_token(admin, _url("/admin/users"))
     disable_response = admin.post(
         _url(f"/admin/users/{alice_id}/disable"),
-        data={"csrf_token": admin_csrf},
+        data={"csrf_token": admin_csrf, "justification": "session revocation test"},
         allow_redirects=False,
         timeout=10,
     )
@@ -122,7 +122,7 @@ def test_privilege_escalation_disabled_user_session_persistence():
     admin_csrf = _get_csrf_token(admin, _url("/admin/users"))
     admin.post(
         _url(f"/admin/users/{alice_id}/enable"),
-        data={"csrf_token": admin_csrf},
+        data={"csrf_token": admin_csrf, "justification": "test cleanup"},
         allow_redirects=False,
         timeout=10,
     )

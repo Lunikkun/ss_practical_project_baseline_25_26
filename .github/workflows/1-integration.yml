@@ -17,7 +17,7 @@ env:
   DB_IMAGE_NAME: secure-doc-platform-db
 
 jobs:
-  test:
+  integration-and-security:
     runs-on: ubuntu-latest
 
     steps:
@@ -54,11 +54,106 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest requests
+          pip install pytest requests bandit pip-audit semgrep
+
+      - name: Run SAST gate (Bandit)
+        run: |
+          bandit -q -r web/app
+
+      - name: Run SAST gate (Semgrep)
+        run: |
+          semgrep --config p/security-audit --config p/secrets --error --metrics=off web/app
+
+      - name: Run dependency vulnerability gate
+        run: |
+          pip-audit -r web/requirements.lock --strict
 
       - name: Run smoke tests
         run: |
           pytest -q tests/test_smoke.py
+
+      - name: Run functional tests
+        env:
+          APP_BASE_URL: http://localhost:8000
+        run: |
+          pytest -q \
+            tests/test_1_download.py \
+            tests/test_2_share.py \
+            tests/test_3_shared_download.py \
+            tests/test_4_admin_users.py \
+            tests/test_5_admin_user_toggle.py \
+            tests/test_6_rce_static.py \
+            tests/test_7_upload_hardening.py \
+            tests/test_8_idor_protection.py \
+            tests/test_9_privilege_escalation.py
+
+      - name: Run security verification tests
+        env:
+          APP_BASE_URL: http://localhost:8000
+        run: |
+          pytest -q \
+            tests/test_10_brute_force.py \
+            tests/test_11_session_hijacking.py \
+            tests/test_12_idor_attack_tree.py \
+            tests/test_13_revocation_consistency.py \
+            tests/test_14_monitoring_regression.py \
+            tests/test_15_sqli_attack_tree.py \
+            tests/test_16_stored_xss_attack_tree.py \
+            tests/test_17_storage_dos_attack_tree.py \
+            tests/test_18_supply_chain_poisoning.py \
+            tests/test_19_secret_leakage_build_logs.py \
+            tests/test_20_requirement_closure_controls.py
+
+      - name: Run DAST gate (OWASP ZAP Baseline)
+        run: |
+          docker run --rm --network host -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t http://localhost:8000 \
+            -J /zap/wrk/report/zap-baseline.json \
+            -w /zap/wrk/report/zap-baseline.md \
+            -r /zap/wrk/report/zap-baseline.html \
+            -m 3 || true
+
+          python - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          report_path = pathlib.Path("report/zap-baseline.json")
+          if not report_path.exists():
+              print("Missing ZAP JSON report; failing DAST gate")
+              sys.exit(1)
+
+          data = json.loads(report_path.read_text(encoding="utf-8"))
+          high = 0
+          medium = 0
+
+          for site in data.get("site", []):
+              for alert in site.get("alerts", []):
+                  risk_code = str(alert.get("riskcode", "0"))
+                  instances = len(alert.get("instances", []))
+                  occurrences = instances if instances > 0 else 1
+                  if risk_code == "3":
+                      high += occurrences
+                  elif risk_code == "2":
+                      medium += occurrences
+
+          print(f"ZAP findings -> high={high}, medium={medium}")
+          if high > 0:
+              print("High-risk DAST findings detected; failing pipeline")
+              sys.exit(1)
+          PY
+
+      - name: Upload DAST artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: |
+            report/zap-baseline.json
+            report/zap-baseline.md
+            report/zap-baseline.html
+          if-no-files-found: error
 
       - name: Stop stack
         if: always()
@@ -67,7 +162,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    needs: test
+    needs: integration-and-security
     if: github.event_name == 'push'
 
     steps:
@@ -75,8 +170,15 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set lowercase image namespace
+        id: lowercase
         run: |
-          echo "IMAGE_NAMESPACE_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "namespace=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set image tags
+        id: tags
+        run: |
+          echo "web_sha_tag=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.namespace }}/${{ env.WEB_IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "db_sha_tag=${{ env.REGISTRY }}/${{ steps.lowercase.outputs.namespace }}/${{ env.DB_IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -84,11 +186,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set image tags
-        run: |
-          echo "WEB_SHA_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE_LC }}/${{ env.WEB_IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_ENV"
-          echo "DB_SHA_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE_LC }}/${{ env.DB_IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -99,7 +196,7 @@ jobs:
           context: ./web
           push: true
           tags: |
-            ${{ env.WEB_SHA_TAG }}
+            ${{ steps.tags.outputs.web_sha_tag }}
           provenance: false
 
       - name: Build and push db image
@@ -108,5 +205,5 @@ jobs:
           context: ./db
           push: true
           tags: |
-            ${{ env.DB_SHA_TAG }}
+            ${{ steps.tags.outputs.db_sha_tag }}
           provenance: false

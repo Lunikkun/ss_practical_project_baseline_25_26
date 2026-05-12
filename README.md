@@ -45,6 +45,8 @@ The system can be started locally using Docker Compose.
 ```bash
 docker compose up --build
 ```
+
+The public entrypoint is exposed through an edge reverse proxy (`edge` service) that forwards traffic to the Flask app.
 Once the containers start, the application will be available at:
 
 http://localhost:8000

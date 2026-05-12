@@ -15,7 +15,7 @@ def test_admin_enable_disable_endpoints_enforce_rbac_and_toggle_user_status():
     csrf_token = _get_csrf_token(admin, _url("/admin/users"))
     disable_resp = admin.post(
         _url(f"/admin/users/{bob_id}/disable"),
-        data={"csrf_token": csrf_token},
+        data={"csrf_token": csrf_token, "justification": "security validation"},
         allow_redirects=False,
         timeout=10,
     )
@@ -34,7 +34,7 @@ def test_admin_enable_disable_endpoints_enforce_rbac_and_toggle_user_status():
     csrf_token = _get_csrf_token(admin, _url("/admin/users"))
     enable_resp = admin.post(
         _url(f"/admin/users/{bob_id}/enable"),
-        data={"csrf_token": csrf_token},
+        data={"csrf_token": csrf_token, "justification": "security validation"},
         allow_redirects=False,
         timeout=10,
     )

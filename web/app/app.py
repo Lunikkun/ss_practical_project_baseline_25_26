@@ -2,7 +2,6 @@ import functools
 import pathlib
 import os
 import hashlib
-import re
 import shutil
 import threading
 import time
@@ -11,8 +10,21 @@ import flask
 import dotenv
 from flask_wtf.csrf import CSRFProtect
 from . import db
+from .security.pep import PolicyEnforcementPoint
+from .security.input_controls import (
+    is_safe_document_title,
+    is_safe_upload,
+    is_suspicious_search_query,
+    normalize_search_query,
+)
+from .services.storage_service import (
+    build_storage_key,
+    extract_metadata,
+    get_total_storage_usage_bytes,
+    get_user_storage_usage_bytes,
+)
 from werkzeug.security import check_password_hash
-from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 
 dotenv.load_dotenv()
 
@@ -40,41 +52,13 @@ LOGIN_LOCKOUT_THRESHOLD = int(os.getenv("LOGIN_LOCKOUT_THRESHOLD", "5"))  # fail
 LOGIN_LOCKOUT_DURATION = int(os.getenv("LOGIN_LOCKOUT_DURATION", "300"))  # lockout seconds (5 min)
 FORCE_HTTPS = os.getenv("FORCE_HTTPS", "0") == "1"
 HSTS_MAX_AGE = int(os.getenv("HSTS_MAX_AGE", "31536000"))
-MAX_SEARCH_QUERY_LENGTH = int(os.getenv("MAX_SEARCH_QUERY_LENGTH", "100"))
+APP_SECURITY_PROFILE = os.getenv("APP_SECURITY_PROFILE", "dev").lower()
 UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "25"))
 UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
 USER_MAX_FILES = int(os.getenv("USER_MAX_FILES", "0"))
 USER_STORAGE_QUOTA_BYTES = int(os.getenv("USER_STORAGE_QUOTA_BYTES", "0"))
 GLOBAL_STORAGE_QUOTA_BYTES = int(os.getenv("GLOBAL_STORAGE_QUOTA_BYTES", "0"))
 MIN_FREE_DISK_BYTES = int(os.getenv("MIN_FREE_DISK_BYTES", "10485760"))
-DISALLOWED_UPLOAD_EXTENSIONS = {
-    ".bat",
-    ".bin",
-    ".cjs",
-    ".cmd",
-    ".com",
-    ".dll",
-    ".exe",
-    ".htm",
-    ".html",
-    ".js",
-    ".jsp",
-    ".jspx",
-    ".mjs",
-    ".msi",
-    ".php",
-    ".php3",
-    ".php4",
-    ".php5",
-    ".phtml",
-    ".pl",
-    ".py",
-    ".pyc",
-    ".rb",
-    ".sh",
-    ".svg",
-    ".war",
-}
 
 def get_db():
     return psycopg2.connect(
@@ -105,6 +89,13 @@ def create_app():
         app.config["SESSION_COOKIE_NAME"] = "__Host-session"
     app.config["FORCE_HTTPS"] = FORCE_HTTPS
     app.config["HSTS_MAX_AGE"] = HSTS_MAX_AGE
+    app.config["APP_SECURITY_PROFILE"] = APP_SECURITY_PROFILE
+
+    if app.config["APP_SECURITY_PROFILE"] == "production":
+        if not app.config["SESSION_COOKIE_SECURE"]:
+            raise RuntimeError("Production security profile requires SESSION_COOKIE_SECURE=1.")
+        if not app.config["FORCE_HTTPS"]:
+            raise RuntimeError("Production security profile requires FORCE_HTTPS=1.")
 
     CSRFProtect(app)
     register_routes(app)
@@ -135,58 +126,10 @@ def get_shared_documents_for_user(cur, user_id):
     return cur.fetchall()
 
 
-def get_upload_folder_path() -> pathlib.Path:
-    return BASE_DIR / UPLOAD_FOLDER
-
-
-def get_total_storage_usage_bytes(upload_folder: pathlib.Path) -> int:
-    total = 0
-    if not upload_folder.exists():
-        return total
-    for entry in upload_folder.iterdir():
-        if entry.is_file():
-            total += entry.stat().st_size
-    return total
-
-
-def get_user_storage_usage_bytes(cur, user_id: int, upload_folder: pathlib.Path):
-    cur.execute(
-        """
-        SELECT filename
-        FROM documents
-        WHERE owner_id = %s
-        """,
-        (user_id,),
-    )
-    rows = cur.fetchall()
-    unique_filenames = {secure_filename(row[0]) for row in rows if row and row[0]}
-    total = 0
-    for filename in unique_filenames:
-        file_path = upload_folder / filename
-        if file_path.exists() and file_path.is_file():
-            total += file_path.stat().st_size
-    return len(rows), total
-
-def extract_metadata(filename):
-    path = pathlib.Path(filename)
-    stats = path.stat()
-    return f"size={stats.st_size}, modified={stats.st_mtime}"
-
-def is_safe_upload(filename):
-    sanitized_name = secure_filename(filename or "")
-    if not sanitized_name:
-        return False, "Invalid file name."
-
-    extension = pathlib.Path(sanitized_name).suffix.lower()
-    if extension in DISALLOWED_UPLOAD_EXTENSIONS:
-        return False, "File type not allowed."
-
-    return True, sanitized_name
-
 def get_document_by_id(cur, document_id):
     cur.execute(
         """
-        SELECT id, owner_id, title, filename, metadata
+        SELECT id, owner_id, title, filename, storage_key, metadata
         FROM documents
         WHERE id = %s
         """,
@@ -221,16 +164,20 @@ def verify_password(stored_password, provided_password):
     if not stored_password:
         return False
 
-    if stored_password.startswith(("pbkdf2:", "scrypt:")):
-        try:
-            return check_password_hash(stored_password, provided_password)
-        except ValueError:
-            return False
+    if not stored_password.startswith(("pbkdf2:", "scrypt:")):
+        return False
 
-    return stored_password == provided_password
+    try:
+        return check_password_hash(stored_password, provided_password)
+    except ValueError:
+        return False
 
 def is_admin_session():
-    return flask.session.get("username") == "admin"
+    return PolicyEnforcementPoint.can_access_admin(flask.session.get("role"))
+
+
+def is_reviewer_session():
+    return flask.session.get("role") == "reviewer"
 
 def get_users(cur):
     cur.execute(
@@ -245,7 +192,7 @@ def get_users(cur):
 def get_all_users(cur):
     cur.execute(
         """
-        SELECT id, username, is_disabled
+        SELECT id, username, role, is_disabled
         FROM users
         ORDER BY id ASC
         """
@@ -255,7 +202,7 @@ def get_all_users(cur):
 def get_user_by_id(cur, user_id):
     cur.execute(
         """
-        SELECT id, username, is_disabled
+        SELECT id, username, role, is_disabled
         FROM users
         WHERE id = %s
         """,
@@ -309,32 +256,6 @@ def build_session_fingerprint():
     return hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()
 
 
-_SQLI_SIGNATURE_RE = re.compile(
-    r"(?:union\s+select|select\s+.+\s+from|or\s+1\s*=\s*1|--|/\*|;|information_schema)",
-    re.IGNORECASE,
-)
-
-_XSS_TITLE_SIGNATURE_RE = re.compile(
-    r"(?:<\s*/?\s*script\b|javascript:|on\w+\s*=|<|>)",
-    re.IGNORECASE,
-)
-
-
-def normalize_search_query(raw_query: str) -> str:
-    # Keep only a bounded, trimmed value to reduce parser abuse and log noise.
-    return (raw_query or "").strip()[:MAX_SEARCH_QUERY_LENGTH]
-
-
-def is_suspicious_search_query(query: str) -> bool:
-    return bool(_SQLI_SIGNATURE_RE.search(query))
-
-
-def is_safe_document_title(title: str) -> bool:
-    normalized = (title or "").strip()
-    if not normalized:
-        return False
-    return _XSS_TITLE_SIGNATURE_RE.search(normalized) is None
-
 def register_routes(app):
 
     def log_denied_document_access(action: str, document_id: int, status_code: int):
@@ -345,6 +266,37 @@ def register_routes(app):
             flask.session.get("user_id", "anonymous"),
             get_client_ip(),
             status_code,
+        )
+
+    def write_audit_log(
+        cur,
+        *,
+        action_type: str,
+        result: str,
+        target_user_id=None,
+        target_document_id=None,
+        justification: str = "",
+    ):
+        cur.execute(
+            """
+            INSERT INTO audit_logs (
+                actor_id,
+                action_type,
+                target_user_id,
+                target_document_id,
+                justification,
+                result
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                flask.session.get("user_id"),
+                action_type,
+                target_user_id,
+                target_document_id,
+                (justification or "").strip(),
+                result,
+            ),
         )
 
     @app.before_request
@@ -378,9 +330,16 @@ def register_routes(app):
         user = get_user_by_id(cur, flask.session["user_id"])
         cur.close()
         conn.close()
-        if user and user[2]:
+        if user and user[3]:
             flask.session.clear()
             return flask.redirect(flask.url_for("login"))
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_exception(error):
+        if isinstance(error, HTTPException):
+            return error
+        app.logger.exception("Unhandled application exception path=%s", flask.request.path)
+        return flask.render_template("error_generic.html"), 500
 
     @app.after_request
     def set_security_headers(response):
@@ -450,12 +409,13 @@ def register_routes(app):
             candidate_hash = user[2] if user else dummy_hash
             password_ok = verify_password(candidate_hash, password)
 
-            if user and password_ok and not user[3]:
+            if user and password_ok and not user[4]:
                 with _auth_lock:
                     _account_lock_state.pop(username, None)
                 flask.session.clear()
                 flask.session["user_id"] = user[0]
                 flask.session["username"] = user[1]
+                flask.session["role"] = user[3]
                 flask.session["session_fp"] = build_session_fingerprint()
                 return flask.redirect(flask.url_for("documents_page"))
 
@@ -506,7 +466,7 @@ def register_routes(app):
             "owner_id": row[1],
             "title": row[2],
             "filename": row[3],
-            "metadata": row[4],
+            "metadata": row[5],
         }
 
         share_candidates = [
@@ -527,6 +487,8 @@ def register_routes(app):
     @app.route("/documents/<int:document_id>/share", methods=["POST"])
     @login_required
     def share_document(document_id):
+        if not PolicyEnforcementPoint.can_share_document(flask.session.get("role")):
+            return "Forbidden", 403
         user_id = flask.session.get("user_id")
         shared_with_raw = flask.request.form.get("shared_with", "").strip()
 
@@ -545,7 +507,19 @@ def register_routes(app):
             return "Document not found", 404
 
         owner_id = row[1]
-        if not (is_admin_session() or user_id == owner_id):
+        if not PolicyEnforcementPoint.can_manage_document(
+            actor_id=user_id,
+            actor_role=flask.session.get("role"),
+            owner_id=owner_id,
+        ):
+            write_audit_log(
+                cur,
+                action_type="share_document",
+                result="denied_not_owner_or_admin",
+                target_user_id=shared_with,
+                target_document_id=document_id,
+            )
+            conn.commit()
             cur.close()
             conn.close()
             log_denied_document_access("share", document_id, 404)
@@ -587,6 +561,22 @@ def register_routes(app):
                 """,
                 (document_id, shared_with),
             )
+            write_audit_log(
+                cur,
+                action_type="share_document",
+                result="success",
+                target_user_id=shared_with,
+                target_document_id=document_id,
+            )
+            conn.commit()
+        else:
+            write_audit_log(
+                cur,
+                action_type="share_document",
+                result="noop_already_shared",
+                target_user_id=shared_with,
+                target_document_id=document_id,
+            )
             conn.commit()
 
         cur.close()
@@ -596,6 +586,8 @@ def register_routes(app):
     @app.route("/documents/<int:document_id>/revoke", methods=["POST"])
     @login_required
     def revoke_document_share(document_id):
+        if not PolicyEnforcementPoint.can_share_document(flask.session.get("role")):
+            return "Forbidden", 403
         user_id = flask.session.get("user_id")
         shared_with_raw = flask.request.form.get("shared_with", "").strip()
 
@@ -614,7 +606,19 @@ def register_routes(app):
             return "Document not found", 404
 
         owner_id = row[1]
-        if not (is_admin_session() or user_id == owner_id):
+        if not PolicyEnforcementPoint.can_manage_document(
+            actor_id=user_id,
+            actor_role=flask.session.get("role"),
+            owner_id=owner_id,
+        ):
+            write_audit_log(
+                cur,
+                action_type="revoke_document_share",
+                result="denied_not_owner_or_admin",
+                target_user_id=shared_with,
+                target_document_id=document_id,
+            )
+            conn.commit()
             cur.close()
             conn.close()
             log_denied_document_access("revoke", document_id, 404)
@@ -626,6 +630,13 @@ def register_routes(app):
             WHERE document_id = %s AND shared_with = %s
             """,
             (document_id, shared_with),
+        )
+        write_audit_log(
+            cur,
+            action_type="revoke_document_share",
+            result="success" if cur.rowcount > 0 else "noop_not_shared",
+            target_user_id=shared_with,
+            target_document_id=document_id,
         )
         conn.commit()
 
@@ -653,7 +664,8 @@ def register_routes(app):
             log_denied_document_access("download", document_id, 404)
             return "Document not found", 404
 
-        stored_filename = secure_filename(row[3])
+        stored_filename = row[4]
+        download_filename = row[3]
         cur.close()
         conn.close()
 
@@ -666,7 +678,7 @@ def register_routes(app):
             str(upload_folder),
             stored_filename,
             as_attachment=True,
-            download_name=stored_filename,
+            download_name=download_filename,
         )
 
     @app.route("/documents")
@@ -778,7 +790,8 @@ def register_routes(app):
             {
                 "id": row[0],
                 "username": row[1],
-                "is_disabled": row[2],
+                "role": row[2],
+                "is_disabled": row[3],
             }
             for row in rows
         ]
@@ -790,6 +803,10 @@ def register_routes(app):
     def enable_user(user_id):
         if not is_admin_session():
             return "Forbidden", 403
+
+        justification = flask.request.form.get("justification", "").strip()
+        if not justification:
+            return "Justification is required", 400
 
         conn = get_db()
         cur = conn.cursor()
@@ -808,6 +825,13 @@ def register_routes(app):
             """,
             (user_id,),
         )
+        write_audit_log(
+            cur,
+            action_type="enable_user",
+            result="success",
+            target_user_id=user_id,
+            justification=justification,
+        )
         conn.commit()
 
         cur.close()
@@ -820,6 +844,10 @@ def register_routes(app):
         if not is_admin_session():
             return "Forbidden", 403
 
+        justification = flask.request.form.get("justification", "").strip()
+        if not justification:
+            return "Justification is required", 400
+
         conn = get_db()
         cur = conn.cursor()
 
@@ -830,6 +858,7 @@ def register_routes(app):
             return "User not found", 404
 
         target_username = target[1]
+        target_role = target[2]
         current_username = flask.session.get("username")
 
         if target_username == current_username:
@@ -837,7 +866,7 @@ def register_routes(app):
             conn.close()
             return "Cannot disable current admin user", 400
 
-        if target_username == "admin":
+        if target_role == "admin":
             cur.close()
             conn.close()
             return "Cannot disable admin account", 400
@@ -849,6 +878,13 @@ def register_routes(app):
             WHERE id = %s
             """,
             (user_id,),
+        )
+        write_audit_log(
+            cur,
+            action_type="disable_user",
+            result="success",
+            target_user_id=user_id,
+            justification=justification,
         )
         conn.commit()
 
@@ -876,7 +912,8 @@ def register_routes(app):
             log_denied_document_access("shared_download", document_id, 404)
             return "Document not found", 404
 
-        stored_filename = secure_filename(row[3])
+        stored_filename = row[4]
+        download_filename = row[3]
         cur.close()
         conn.close()
 
@@ -889,7 +926,7 @@ def register_routes(app):
             str(upload_folder),
             stored_filename,
             as_attachment=True,
-            download_name=stored_filename,
+            download_name=download_filename,
         )
 
     @app.route("/documents/upload", methods=["POST"])
@@ -932,8 +969,10 @@ def register_routes(app):
             return flask.redirect(flask.url_for("documents_page"))
 
         filename = sanitized_or_message
+        storage_key = build_storage_key(filename)
         upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
         upload_folder.mkdir(parents=True, exist_ok=True)
+        os.chmod(upload_folder, 0o700)
 
         current_storage_usage = get_total_storage_usage_bytes(upload_folder)
 
@@ -967,7 +1006,7 @@ def register_routes(app):
             )
             return "Storage temporarily unavailable.", 507
 
-        destination = upload_folder / filename
+        destination = upload_folder / storage_key
 
         conn = get_db()
         cur = conn.cursor()
@@ -999,14 +1038,15 @@ def register_routes(app):
             return "Upload quota exceeded.", 429
 
         uploaded_file.save(destination)
+        os.chmod(destination, 0o600)
         metadata = extract_metadata(destination)
 
         cur.execute(
             """
-            INSERT INTO documents (owner_id, title, filename, metadata)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO documents (owner_id, title, filename, storage_key, metadata)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            (user_id, title, filename, metadata),
+            (user_id, title, filename, storage_key, metadata),
         )
         conn.commit()
 

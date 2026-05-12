@@ -7,6 +7,7 @@
       <tr>
         <th>ID</th>
         <th>Username</th>
+        <th>Role</th>
         <th>Status</th>
         <th>Action</th>
       </tr>
@@ -16,16 +17,19 @@
       <tr>
         <td>{{ user.id }}</td>
         <td>{{ user.username }}</td>
+        <td>{{ user.role }}</td>
         <td>{% if user.is_disabled %}disabled{% else %}active{% endif %}</td>
         <td>
           {% if user.is_disabled %}
             <form method="post" action="{{ url_for('enable_user', user_id=user.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="justification" maxlength="250" required placeholder="Justification">
               <button type="submit">Enable</button>
             </form>
           {% else %}
             <form method="post" action="{{ url_for('disable_user', user_id=user.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="justification" maxlength="250" required placeholder="Justification">
               <button type="submit">Disable</button>
             </form>
           {% endif %}

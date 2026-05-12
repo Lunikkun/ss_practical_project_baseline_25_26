@@ -2,6 +2,7 @@ CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'reviewer')),
     is_disabled BOOLEAN DEFAULT FALSE
 );
 
@@ -10,6 +11,7 @@ CREATE TABLE documents (
     owner_id INTEGER REFERENCES users(id),
     title TEXT NOT NULL,
     filename TEXT NOT NULL,
+    storage_key TEXT UNIQUE NOT NULL,
     metadata TEXT,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -20,39 +22,18 @@ CREATE TABLE document_shares (
     shared_with INTEGER REFERENCES users(id)
 );
 
--- ---------------------------------------------------------------------------
--- IMPORTANT — VALIDATOR ACCOUNTS
---
--- The following user accounts are required for the automated validation
--- system used in the course. These accounts MUST always exist in the system.
---
--- The usernames and logical identities of these accounts must NOT be removed
--- or changed, as the validator depends on them to execute security tests.
---
--- The validator authenticates using the plaintext credentials defined below.
--- Therefore:
---
---  • These credentials must remain valid for authentication.
---  • The passwords themselves must not be changed.
---
--- You are free to improve the authentication system (e.g., password hashing,
--- stronger password policies, etc.). If you implement password hashing or
--- other changes to the login mechanism, ensure that the credentials below
--- still successfully authenticate.
---
--- In other words: the authentication implementation may change, but the
--- following username/password combinations must continue to work.
---
--- These accounts are used by the automated validator to test:
---   • authentication
---   • authorization
---   • document sharing
---   • access control
---   • administrative operations
---
--- Removing or altering these accounts will cause automated validation to fail.
--- ---------------------------------------------------------------------------
-INSERT INTO users (username, password, is_disabled) VALUES
-('admin', 'L|fP1D%327mB', FALSE),
-('alice', 'tth1mJj5?£58', FALSE),
-('bob', 'De586:Iq6}?!', FALSE);
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    actor_id INTEGER REFERENCES users(id),
+    action_type TEXT NOT NULL,
+    target_user_id INTEGER REFERENCES users(id),
+    target_document_id INTEGER REFERENCES documents(id),
+    justification TEXT,
+    result TEXT NOT NULL
+);
+
+INSERT INTO users (username, password, role, is_disabled) VALUES
+('admin', 'pbkdf2:sha256:1000000$Xr8a7NqErCjGNwtW$4d60f56130cf74984181f5d3cf4dcbb426e1597c5eb9cc8991f949e00acaf665', 'admin', FALSE),
+('alice', 'pbkdf2:sha256:1000000$qQzGdTse5Idflc1f$07ec2fedf3d08188fd6bd14bd5535434a87807c16df8ebf2ba257bbb234fd90f', 'user', FALSE),
+('bob', 'pbkdf2:sha256:1000000$SkexOgCNsUX76SFS$115a8afb2ef5beaab37745c777e54c965be85abad01f514f4b47d66be31157f5', 'reviewer', FALSE);
