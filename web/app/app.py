@@ -347,11 +347,28 @@ def register_routes(app):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), autoplay=(), camera=(), display-capture=(), "
+            "encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), midi=(), payment=(), usb=()"
+        )
         response.headers["Strict-Transport-Security"] = f"max-age={app.config['HSTS_MAX_AGE']}; includeSubDomains"
 
-        # Avoid serving stale authenticated content after permission revocation.
-        if flask.session.get("user_id"):
+        # Prevent stale or shared-cache reuse for dynamic pages and auth flows.
+        if not flask.request.path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
