@@ -108,8 +108,10 @@ jobs:
       - name: Run DAST gate (OWASP ZAP Baseline)
         run: |
           mkdir -p "$RUNNER_TEMP/zap-report"
+          chmod 777 "$RUNNER_TEMP/zap-report"
 
           docker run --rm --network host \
+            --user "$(id -u):$(id -g)" \
             -v "$RUNNER_TEMP/zap-report:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
