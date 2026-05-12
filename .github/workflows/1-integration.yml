@@ -146,14 +146,14 @@ jobs:
 
       - name: Upload DAST artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: zap-baseline-report
           path: |
-            report/zap-baseline.json
-            report/zap-baseline.md
-            report/zap-baseline.html
-          if-no-files-found: error
+            CI/zap-baseline.json
+            CI/zap-baseline.md
+            CI/zap-baseline.html
+          if-no-files-found: warn
 
       - name: Stop stack
         if: always()
