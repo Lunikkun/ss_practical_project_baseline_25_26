@@ -15,6 +15,7 @@ env:
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
   WEB_IMAGE_NAME: secure-doc-platform-web
   DB_IMAGE_NAME: secure-doc-platform-db
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   integration-and-security:
@@ -150,9 +151,9 @@ jobs:
         with:
           name: zap-baseline-report
           path: |
-            CI/zap-baseline.json
-            CI/zap-baseline.md
-            CI/zap-baseline.html
+            report/zap-baseline.json
+            report/zap-baseline.md
+            report/zap-baseline.html
           if-no-files-found: warn
 
       - name: Stop stack
