@@ -107,31 +107,25 @@ jobs:
 
       - name: Run DAST gate (OWASP ZAP Baseline)
         run: |
-          mkdir -p "$RUNNER_TEMP/zap/report"
+          mkdir -p "$RUNNER_TEMP/zap-report"
 
-          docker run --rm --network host -v "$RUNNER_TEMP/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+          docker run --rm --network host \
+            -v "$RUNNER_TEMP/zap-report:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t http://localhost:8000 \
-            -J report/zap-baseline.json \
-            -w report/zap-baseline.md \
-            -r report/zap-baseline.html \
+            -J zap-baseline.json \
+            -w zap-baseline.md \
+            -r zap-baseline.html \
             -m 3 || true
-
-          mkdir -p report
-          for ext in json md html; do
-            src="$RUNNER_TEMP/zap/report/zap-baseline.${ext}"
-            dst="report/zap-baseline.${ext}"
-            if [ -f "$src" ]; then
-              cp "$src" "$dst"
-            fi
-          done
 
           python - <<'PY'
           import json
+          import os
           import pathlib
           import sys
 
-          report_path = pathlib.Path("report/zap-baseline.json")
+          report_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zap-report" / "zap-baseline.json"
           if not report_path.exists():
               print("Missing ZAP JSON report; failing DAST gate")
               sys.exit(1)
@@ -162,9 +156,9 @@ jobs:
         with:
           name: zap-baseline-report
           path: |
-            report/zap-baseline.json
-            report/zap-baseline.md
-            report/zap-baseline.html
+            ${{ runner.temp }}/zap-report/zap-baseline.json
+            ${{ runner.temp }}/zap-report/zap-baseline.md
+            ${{ runner.temp }}/zap-report/zap-baseline.html
           if-no-files-found: warn
 
       - name: Stop stack
