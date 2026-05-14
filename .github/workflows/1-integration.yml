@@ -34,19 +34,29 @@ jobs:
           docker compose up -d --build
 
       - name: Wait for application
+              - name: Check service status
+                run: |
+                  echo "=== Checking service status ==="
+                  docker compose ps
+                  echo "=== Waiting for database to be ready ==="
+                  sleep 10
+
+              - name: Wait for application
         run: |
-          timeout=60
+          timeout=180
           elapsed=0
 
           until curl -fs http://localhost:8000/health > /dev/null; do
             if [ "$elapsed" -ge "$timeout" ]; then
               echo "Application did not become ready within ${timeout}s"
+                            echo "=== Docker Compose Logs ==="
+                            docker compose logs || true
               exit 1
             fi
 
-            echo "Waiting for application..."
-            sleep 2
-            elapsed=$((elapsed+2))
+            echo "Waiting for application... (${elapsed}s/${timeout}s)"
+            sleep 3
+            elapsed=$((elapsed+3))
           done
 
           echo "Application is ready"
