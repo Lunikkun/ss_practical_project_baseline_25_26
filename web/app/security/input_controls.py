@@ -32,7 +32,9 @@ DISALLOWED_UPLOAD_EXTENSIONS = {
     ".rb",
     ".sh",
     ".svg",
-    ".war",
+    ".war",   
+    ".bash",     
+    ".csh",     
 }
 
 _SQLI_SIGNATURE_RE = re.compile(
