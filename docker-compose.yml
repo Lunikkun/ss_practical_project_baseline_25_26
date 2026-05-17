@@ -44,6 +44,10 @@ services:
   db:
     build: ./db
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-docdb}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     volumes:
       - pgdata:/var/lib/postgresql/data
     stop_grace_period: 30s

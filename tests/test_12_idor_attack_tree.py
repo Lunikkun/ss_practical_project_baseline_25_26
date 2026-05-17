@@ -5,8 +5,9 @@ from test_utils import _find_document_id, _login, _upload_document, _url, _wait_
 
 def test_idor_attack_tree_sequential_id_tampering_is_blocked():
     """
-    Scenario 6 (Attack Tree): un attacker autenticato prova ID predictability + URL tampering.
-    Difesa attesa: risposte uniformi 404 per risorse non autorizzate, senza leak esistenza.
+    Scenario 6 (Attack Tree): an authenticated attacker tries ID predictability
+    and URL tampering. Expected defense: uniform 404 for unauthorized resources
+    without existence leakage.
     """
     _wait_for_service()
 
@@ -41,8 +42,9 @@ def test_idor_attack_tree_sequential_id_tampering_is_blocked():
 
 def test_idor_attack_tree_shared_endpoint_requires_explicit_share():
     """
-    Scenario 6: replay sull'endpoint /shared/<id>/download senza share attiva.
-    Difesa attesa: 404 uniforme (nessuna differenza tra 'non esiste' e 'non autorizzato').
+    Scenario 6: replay against /shared/<id>/download without active share.
+    Expected defense: uniform 404 (no difference between 'not found' and
+    'not authorized').
     """
     _wait_for_service()
 

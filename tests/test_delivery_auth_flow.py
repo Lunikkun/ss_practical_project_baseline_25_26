@@ -16,9 +16,9 @@ def test_login_logout_flow():
 
     session = requests.Session()
 
-    # ------------------------------------------------------------
-    # Login
-    # ------------------------------------------------------------
+                                                                  
+           
+                                                                  
     csrf_token = _get_csrf_token(session, _url("/login"))
     login_resp = session.post(
         _url("/login"),
@@ -35,9 +35,9 @@ def test_login_logout_flow():
         f"Login failed unexpectedly: {login_resp.status_code}"
     )
 
-    # ------------------------------------------------------------
-    # Access protected page
-    # ------------------------------------------------------------
+                                                                  
+                           
+                                                                  
     documents_resp = session.get(
         _url("/documents"),
         allow_redirects=False,
@@ -48,9 +48,9 @@ def test_login_logout_flow():
         "Authenticated user cannot access /documents"
     )
 
-    # ------------------------------------------------------------
-    # Logout
-    # ------------------------------------------------------------
+                                                                  
+            
+                                                                  
     logout_resp = session.get(
         _url("/logout"),
         allow_redirects=False,
@@ -61,9 +61,9 @@ def test_login_logout_flow():
         f"Logout failed unexpectedly: {logout_resp.status_code}"
     )
 
-    # ------------------------------------------------------------
-    # Verify session is invalidated
-    # ------------------------------------------------------------
+                                                                  
+                                   
+                                                                  
     after_logout = session.get(
         _url("/documents"),
         allow_redirects=False,

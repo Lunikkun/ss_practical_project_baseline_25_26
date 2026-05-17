@@ -5,7 +5,7 @@ from test_utils import _wait_for_service
 
 def test_supply_chain_poisoning_controls_are_locked_down():
     """
-    Scenario 12: la build pipeline deve installare solo da lock file hash-locked.
+    Scenario 12: the build pipeline must install only from a hash-locked lockfile.
     """
     _wait_for_service()
 
@@ -23,7 +23,7 @@ def test_supply_chain_poisoning_controls_are_locked_down():
 
 def test_supply_chain_poisoning_lockfile_covers_all_packages():
     """
-    Regressione statica: ogni pacchetto nel lock deve essere hashato.
+    Static regression: every package in the lockfile must include hashes.
     """
     lock_lines = [line for line in Path("web/requirements.lock").read_text(encoding="utf-8").splitlines() if line]
 

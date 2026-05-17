@@ -27,11 +27,14 @@ jobs:
 
       - name: Create runtime .env for CI
         run: |
-          cat > .env << 'EOF'
+          CI_DB_PASSWORD="ci-db-$(openssl rand -hex 16)"
+          CI_SECRET_KEY="ci-secret-$(openssl rand -hex 32)"
+
+          cat > .env << EOF
           DB_HOST=db
           DB_PORT=5432
           DB_USER=postgres
-          DB_PASSWORD=postgres
+          DB_PASSWORD=${CI_DB_PASSWORD}
           DB_NAME=docdb
           MAX_UPLOAD_BYTES=10485760
           LOGIN_IP_RATE_LIMIT=50
@@ -48,8 +51,12 @@ jobs:
           USER_STORAGE_QUOTA_BYTES=0
           GLOBAL_STORAGE_QUOTA_BYTES=0
           MIN_FREE_DISK_BYTES=10485760
-          SECRET_KEY=ci-runtime-only-key
+          SECRET_KEY=${CI_SECRET_KEY}
           EOF
+
+          echo "Generated ephemeral CI runtime credentials (masked)."
+          echo "::add-mask::${CI_DB_PASSWORD}"
+          echo "::add-mask::${CI_SECRET_KEY}"
 
       - name: Start application stack for validation
         run: |

@@ -40,19 +40,19 @@ DB_NAME = os.getenv("DB_NAME")
 UPLOAD_FOLDER = "uploads"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES"))
 
-# Brute force protection
+                        
 _auth_lock = threading.Lock()
-_ip_rate_state: dict = {}      # ip → {"count": int, "window_start": float}
-_account_lock_state: dict = {} # username → {"failures": int, "locked_until": float}
+_ip_rate_state: dict = {}                                                  
+_account_lock_state: dict = {}                                                      
 _upload_lock = threading.Lock()
-_upload_rate_state: dict = {}  # user_id -> {"count": int, "window_start": float}
+_upload_rate_state: dict = {}                                                    
 _schema_lock = threading.Lock()
 _document_hash_column_ready = False
 
-LOGIN_IP_RATE_LIMIT = int(os.getenv("LOGIN_IP_RATE_LIMIT", "50"))        # requests per minute per IP
-LOGIN_IP_RATE_WINDOW = 60                                                   # seconds
-LOGIN_LOCKOUT_THRESHOLD = int(os.getenv("LOGIN_LOCKOUT_THRESHOLD", "5"))  # failures before lockout
-LOGIN_LOCKOUT_DURATION = int(os.getenv("LOGIN_LOCKOUT_DURATION", "300"))  # lockout seconds (5 min)
+LOGIN_IP_RATE_LIMIT = int(os.getenv("LOGIN_IP_RATE_LIMIT", "50"))                                    
+LOGIN_IP_RATE_WINDOW = 60                                                            
+LOGIN_LOCKOUT_THRESHOLD = int(os.getenv("LOGIN_LOCKOUT_THRESHOLD", "5"))                           
+LOGIN_LOCKOUT_DURATION = int(os.getenv("LOGIN_LOCKOUT_DURATION", "300"))                           
 FORCE_HTTPS = os.getenv("FORCE_HTTPS", "0") == "1"
 HSTS_MAX_AGE = int(os.getenv("HSTS_MAX_AGE", "31536000"))
 APP_SECURITY_PROFILE = os.getenv("APP_SECURITY_PROFILE", "dev").lower()
@@ -405,7 +405,7 @@ def register_routes(app):
         )
         response.headers["Strict-Transport-Security"] = f"max-age={app.config['HSTS_MAX_AGE']}; includeSubDomains"
 
-        # Prevent stale or shared-cache reuse for dynamic pages and auth flows.
+                                                                               
         if not flask.request.path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
@@ -428,7 +428,7 @@ def register_routes(app):
             client_ip = flask.request.remote_addr or "unknown"
             now = time.time()
 
-            # --- IP-based rate limiting ---
+                                            
             with _auth_lock:
                 ip_entry = _ip_rate_state.setdefault(
                     client_ip, {"count": 0, "window_start": now}
@@ -443,7 +443,7 @@ def register_routes(app):
                 flask.flash("Too many requests. Please try again later.", "error")
                 return flask.render_template("login.html"), 429
 
-            # --- Account lockout check ---
+                                           
             with _auth_lock:
                 acc_entry = _account_lock_state.get(username)
                 account_locked = acc_entry is not None and acc_entry["locked_until"] > now
@@ -452,14 +452,14 @@ def register_routes(app):
                 flask.flash("Account temporarily locked. Try again later.", "error")
                 return flask.render_template("login.html"), 429
 
-            # --- Authentication (constant-time: always query DB and always verify) ---
+                                                                                       
             conn = get_db()
             cur = conn.cursor()
             user = db.get_user_by_username(cur, username)
             cur.close()
             conn.close()
 
-            # Always call verify_password to prevent timing-based user enumeration
+                                                                                  
             dummy_hash = "pbkdf2:sha256:600000$dummy$" + "a" * 64
             candidate_hash = user[2] if user else dummy_hash
             password_ok = verify_password(candidate_hash, password)
@@ -474,7 +474,7 @@ def register_routes(app):
                 flask.session["session_fp"] = build_session_fingerprint()
                 return flask.redirect(flask.url_for("documents_page"))
 
-            # --- Track failed attempt ---
+                                          
             with _auth_lock:
                 acc = _account_lock_state.setdefault(
                     username, {"failures": 0, "locked_until": 0.0}
@@ -1262,49 +1262,49 @@ def register_routes(app):
             return {"status": "error"}, 500
 
 
-    # ------------------------------------------------------------------
-    # Planned / Not Yet Implemented Endpoints
-    #
-    # The following routes are part of the intended system interface and
-    # are not implemented in the baseline version of the application.
-    #
-    # The expected behavior of these endpoints is summarized below.
-    #
-    # Document operations
-    #
-    #   GET  /documents/<id>/download
-    #       Download the specified document.
-    #       Success: returns file contents (HTTP 200)
-    #       Errors: 404 if the document does not exist
-    #
-    #   POST /documents/<id>/share
-    #       Share a document with another user.
-    #       Form parameter:
-    #           shared_with  -> target user id
-    #       Success: redirect or confirmation (HTTP 302 or 200)
-    #
-    # Shared documents
-    #
-    #   GET  /shared
-    #       Display documents that were shared with the current user.
-    #       Success: HTTP 200
-    #
-    #   GET  /shared/<id>/download
-    #       Download a document that was shared with the current user.
-    #       Success: returns file contents (HTTP 200)
-    #
-    # Administration
-    #
-    #   GET  /admin/users
-    #       Display a list of users in the system.
-    #       Success: HTTP 200
-    #
-    #   POST /admin/users/<id>/enable
-    #       Enable a user account.
-    #       Success: redirect or confirmation (HTTP 302 or 200)
-    #
-    #   POST /admin/users/<id>/disable
-    #       Disable a user account.
-    #       Success: redirect or confirmation (HTTP 302 or 200)
-    #
-    # ------------------------------------------------------------------
+                                                                        
+                                             
+     
+                                                                        
+                                                                     
+     
+                                                                   
+     
+                         
+     
+                                     
+                                            
+                                                     
+                                                      
+     
+                                  
+                                               
+                           
+                                              
+                                                               
+     
+                      
+     
+                    
+                                                                     
+                             
+     
+                                  
+                                                                      
+                                                     
+     
+                    
+     
+                         
+                                                  
+                             
+     
+                                     
+                                  
+                                                               
+     
+                                      
+                                   
+                                                               
+     
+                                                                        

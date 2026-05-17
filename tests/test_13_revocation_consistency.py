@@ -13,8 +13,8 @@ from test_utils import (
 
 def test_revocation_immediate_effect_with_active_session():
     """
-    Scenario 7: un ex-reviewer mantiene una sessione attiva ma perde il permesso.
-    Dopo revoke deve essere bloccato subito su tutti gli endpoint documento.
+    Scenario 7: a former reviewer keeps an active session but loses access.
+    After revoke, access must be blocked immediately on all document endpoints.
     """
     _wait_for_service()
 
@@ -38,7 +38,7 @@ def test_revocation_immediate_effect_with_active_session():
 
     bob = _login("bob", "De586:Iq6}?!")
 
-    # Precondizione: accesso consentito prima della revoca.
+                                                           
     pre_details = bob.get(_url(f"/documents/{document_id}"), timeout=10)
     pre_download = bob.get(_url(f"/documents/{document_id}/download"), timeout=10)
     pre_shared = bob.get(_url(f"/shared/{document_id}/download"), timeout=10)
@@ -48,7 +48,7 @@ def test_revocation_immediate_effect_with_active_session():
     assert pre_download.content == content
     assert pre_shared.status_code == 200
 
-    # Revoca da parte dell'owner.
+                                 
     csrf_token = _get_csrf_token(alice, _url(f"/documents/{document_id}"))
     revoke_response = alice.post(
         _url(f"/documents/{document_id}/revoke"),
@@ -58,7 +58,7 @@ def test_revocation_immediate_effect_with_active_session():
     )
     assert revoke_response.status_code in (302, 303)
 
-    # Stessa sessione Bob: accesso deve essere revocato immediatamente.
+                                                                       
     post_details = bob.get(_url(f"/documents/{document_id}"), timeout=10)
     post_download = bob.get(_url(f"/documents/{document_id}/download"), timeout=10)
     post_shared = bob.get(_url(f"/shared/{document_id}/download"), timeout=10)
@@ -70,8 +70,8 @@ def test_revocation_immediate_effect_with_active_session():
 
 def test_authenticated_responses_disable_caching():
     """
-    Scenario 7 hardening: contenuti autenticati non devono essere cacheabili,
-    così non si serve contenuto stale dopo revoca permessi.
+    Scenario 7 hardening: authenticated content must not be cacheable,
+    preventing stale content after permission revocation.
     """
     _wait_for_service()
 

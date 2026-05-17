@@ -5,7 +5,7 @@ from test_utils import _wait_for_service
 
 def test_secret_leakage_workflows_use_log_redaction_on_failure():
     """
-    Scenario 13: i workflow non devono stampare log container grezzi in caso di errore.
+    Scenario 13: workflows must not print raw container logs on failures.
     """
     _wait_for_service()
 
@@ -18,7 +18,7 @@ def test_secret_leakage_workflows_use_log_redaction_on_failure():
 
 def test_secret_leakage_redaction_script_masks_common_patterns():
     """
-    Regressione statica: lo script di redazione deve includere i marker principali.
+    Static regression: redaction script must include key masking markers.
     """
     script = Path(".github/scripts/redact_ci_logs.sh").read_text(encoding="utf-8")
 
@@ -35,7 +35,7 @@ def test_secret_leakage_redaction_script_masks_common_patterns():
 
 def test_secret_leakage_workflows_avoid_plaintext_debug_commands():
     """
-    Regressione statica: evita comandi di debug che dumpano env in chiaro.
+    Static regression: avoid debug commands that dump env values in plaintext.
     """
     workflow_files = [
         Path(".github/workflows/1-integration.yml"),

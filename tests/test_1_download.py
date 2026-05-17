@@ -1,5 +1,6 @@
 import uuid
 import pathlib
+import subprocess
 
 from test_utils import _login, _url, _wait_for_service, _upload_document, _find_document_id
 
@@ -45,8 +46,20 @@ def test_download_document_detects_integrity_mismatch():
         new_files,
         key=lambda name: (upload_dir / name).stat().st_mtime,
     )
-    tampered_path = upload_dir / newest_file_name
-    tampered_path.write_bytes(b"tampered-by-test")
+    
+    subprocess.run(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "web",
+            "sh",
+            "-lc",
+            f"printf tampered-by-test > /app/uploads/{newest_file_name}",
+        ],
+        check=True,
+    )
 
     mismatch_download = alice.get(_url(f"/documents/{document_id}/download"), timeout=10)
     assert mismatch_download.status_code == 500

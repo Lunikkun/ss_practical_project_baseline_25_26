@@ -12,7 +12,7 @@ LOGIN_IP_RATE_WINDOW = 60
 
 
 def _get_session_cookie_value(session: requests.Session) -> str:
-    # Cookie name depends on SESSION_COOKIE_SECURE / FORCE_HTTPS configuration.
+                                                                               
     return session.cookies.get("__Host-session") or session.cookies.get("session")
 
 
@@ -50,8 +50,8 @@ def _login_and_get_response(username: str, password: str):
 
 def test_session_cookie_flags_present_on_login():
     """
-    Verifica che il cookie di sessione esponga almeno i flag fondamentali
-    anti-hijacking lato browser: HttpOnly e SameSite.
+    Verify that the session cookie includes baseline anti-hijacking flags
+    at browser level: HttpOnly and SameSite.
     """
     _wait_for_service()
 
@@ -65,8 +65,8 @@ def test_session_cookie_flags_present_on_login():
 
 def test_session_replay_rejected_on_fingerprint_mismatch():
     """
-    Simula furto + replay cookie in un client con User-Agent diverso.
-    Con session fingerprinting attivo il replay deve essere invalidato.
+    Simulate stolen-cookie replay from a client with a different User-Agent.
+    With session fingerprinting enabled, replay must be invalidated.
     """
     _wait_for_service()
 
@@ -95,8 +95,8 @@ def test_session_replay_rejected_on_fingerprint_mismatch():
 
 def test_hsts_and_csp_headers_are_present():
     """
-    Verifica presenza di header utili contro hijacking/XSS di supporto:
-    HSTS e CSP.
+    Verify presence of supporting anti-hijacking/XSS headers:
+    HSTS and CSP.
     """
     _wait_for_service()
 
@@ -112,7 +112,7 @@ def test_hsts_and_csp_headers_are_present():
 
 def test_client_script_avoids_innerhtml_sink():
     """
-    Regressione XSS: il codice client non deve usare innerHTML con input esterno.
+    XSS regression: client code must not use innerHTML with external input.
     """
     with open("web/static/script.js", "r", encoding="utf-8") as f:
         script = f.read()
@@ -123,8 +123,8 @@ def test_client_script_avoids_innerhtml_sink():
 
 def test_https_forced_uses_secure_host_prefixed_cookie():
     """
-    Se FORCE_HTTPS=1, il cookie di sessione deve essere Secure e usare il
-    prefisso __Host- per ridurre rischio di cookie confusion/injection.
+    If FORCE_HTTPS=1, session cookie must be Secure and use the __Host-
+    prefix to reduce cookie confusion/injection risk.
     """
     if os.getenv("FORCE_HTTPS", "0") != "1":
         pytest.skip("FORCE_HTTPS is not enabled in this environment")

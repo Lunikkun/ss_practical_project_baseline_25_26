@@ -8,8 +8,8 @@ SQLI_PAYLOAD = "' UNION SELECT password FROM users --"
 
 def test_sqli_attack_tree_blocks_suspicious_search_payload_documents():
     """
-    Scenario 9: SQLi su search/listing.
-    Un payload tipico SQL injection nella query di ricerca deve essere bloccato.
+    Scenario 9: SQLi against search/listing.
+    A typical SQL injection payload in search query must be blocked.
     """
     _wait_for_service()
 
@@ -22,7 +22,7 @@ def test_sqli_attack_tree_blocks_suspicious_search_payload_documents():
 
 def test_sqli_attack_tree_blocks_suspicious_search_payload_shared():
     """
-    Scenario 9: anche la vista /shared deve bloccare payload SQLi in query string.
+    Scenario 9: /shared view must also block SQLi payloads in query strings.
     """
     _wait_for_service()
 
@@ -35,7 +35,7 @@ def test_sqli_attack_tree_blocks_suspicious_search_payload_shared():
 
 def test_sqli_attack_tree_search_functionality_remains_usable_for_legit_terms():
     """
-    Difesa non distruttiva: input lecito continua a funzionare e filtra i risultati.
+    Non-disruptive defense: legitimate input still works and filters results.
     """
     _wait_for_service()
 
@@ -46,7 +46,7 @@ def test_sqli_attack_tree_search_functionality_remains_usable_for_legit_terms():
     _upload_document(alice, title_keep, "keep.txt", b"keep")
     _upload_document(alice, title_hide, "hide.txt", b"hide")
 
-    # Ensure both docs exist first.
+                                   
     _find_document_id(alice, title_keep)
     _find_document_id(alice, title_hide)
 
@@ -59,7 +59,7 @@ def test_sqli_attack_tree_search_functionality_remains_usable_for_legit_terms():
 
 def test_sqli_attack_tree_no_dynamic_sql_string_concatenation_regression():
     """
-    Regressione statica: vieta pattern comuni di query SQL dinamiche pericolose.
+    Static regression: disallow common dangerous dynamic SQL construction patterns.
     """
     with open("web/app/app.py", "r", encoding="utf-8") as f:
         source = f.read()

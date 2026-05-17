@@ -12,8 +12,8 @@ UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "25"))
 
 def test_storage_dos_attack_tree_upload_flood_triggers_rate_limit():
     """
-    Scenario 11: flood di upload per saturare risorse.
-    Difesa attesa: throttling per utente con risposta 429.
+    Scenario 11: upload flood to exhaust resources.
+    Expected defense: per-user throttling with 429 responses.
     """
     _wait_for_service()
 
@@ -48,7 +48,7 @@ def test_storage_dos_attack_tree_upload_flood_triggers_rate_limit():
 
 def test_storage_dos_attack_tree_quota_controls_present_regression():
     """
-    Regressione statica: verifica presenza dei controlli anti-saturazione storage.
+    Static regression: verify anti-storage-exhaustion controls are present.
     """
     with open("web/app/app.py", "r", encoding="utf-8") as f:
         source = f.read()

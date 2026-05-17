@@ -13,8 +13,8 @@ from test_utils import (
 
 def test_idor_protection_download_endpoint():
     """
-    Test che un utente non autorizzato non possa scaricare un documento
-    tramite manipolazione diretta dell'ID nella URL, anche se è autenticato.
+    Verify that an unauthorized authenticated user cannot download a document
+    by directly manipulating the document ID in the URL.
     """
     _wait_for_service()
 
@@ -34,8 +34,8 @@ def test_idor_protection_download_endpoint():
 
 def test_idor_protection_details_endpoint():
     """
-    Test che un utente non autorizzato non possa visualizzare i dettagli
-    di un documento di un altro utente tramite manipolazione dell'ID.
+    Verify that an unauthorized user cannot view details of another user's
+    document through direct ID manipulation.
     """
     _wait_for_service()
 
@@ -56,8 +56,8 @@ def test_idor_protection_details_endpoint():
 
 def test_idor_protection_share_endpoint():
     """
-    Test che un utente non autorizzato non possa condividere un documento
-    di un altro utente, anche se è autenticato.
+    Verify that an authenticated but unauthorized user cannot share another
+    user's document.
     """
     _wait_for_service()
 
@@ -82,8 +82,8 @@ def test_idor_protection_share_endpoint():
 
 def test_idor_protection_shared_download_endpoint():
     """
-    Test che accesso a /shared/<id>/download sia limitato solo ai
-    documenti effettivamente condivisi con l'utente autenticato.
+    Verify that access to /shared/<id>/download is restricted only to
+    documents actually shared with the authenticated user.
     """
     _wait_for_service()
 
