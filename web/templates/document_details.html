@@ -9,6 +9,14 @@
   <p><strong>Title:</strong> {{ document.title }}</p>
   <p><strong>Filename:</strong> {{ document.filename }}</p>
   <p>
+    <strong>SHA-256:</strong>
+    {% if document.document_hash %}
+      <code>{{ document.document_hash }}</code>
+    {% else %}
+      <span class="muted">Not available yet</span>
+    {% endif %}
+  </p>
+  <p>
     <a href="{{ url_for('download_document', document_id=document.id) }}">Download</a>
   </p>
 

@@ -1,4 +1,5 @@
 import pathlib
+import hashlib
 import uuid
 
 
@@ -40,3 +41,14 @@ def extract_metadata(filename):
 def build_storage_key(original_filename: str) -> str:
     extension = pathlib.Path(original_filename).suffix.lower()
     return f"{uuid.uuid4().hex}{extension}"
+
+
+def compute_file_hash(file_path: pathlib.Path, chunk_size: int = 8192) -> str:
+    hasher = hashlib.sha256()
+    with file_path.open("rb") as file_obj:
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()

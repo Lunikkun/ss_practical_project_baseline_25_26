@@ -53,10 +53,43 @@ http://localhost:8000
 
 The application should start within a few seconds. The `/health` endpoint can be used to verify that the system is running correctly.
 
+### Startup Notes (Docker health checks)
+
+The compose stack uses service health checks and startup ordering:
+- `db` must be healthy before `web` starts
+- `web` must be healthy before `edge` starts
+
+This reduces transient `502` responses during startup.
+
+You can inspect readiness with:
+
+```bash
+docker compose ps
+docker compose logs --tail=80 db web edge
+```
+
 To reset the database and recreate the initial dataset:
 ```bash
 docker compose down -v
 docker compose up --build
+```
+
+### PostgreSQL Recovery (non-destructive)
+
+If PostgreSQL fails with `FATAL: bogus data in lock file "postmaster.pid"`, run:
+
+```bash
+docker compose down
+docker run --rm -v ss_practical_project_baseline_25_26_pgdata:/var/lib/postgresql/data alpine sh -c "rm -f /var/lib/postgresql/data/postmaster.pid"
+docker compose up -d db
+docker compose up -d
+```
+
+Verify:
+
+```bash
+docker compose ps
+curl -i http://localhost:8000/health
 ```
 
 ---

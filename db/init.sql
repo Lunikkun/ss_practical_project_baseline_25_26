@@ -12,6 +12,7 @@ CREATE TABLE documents (
     title TEXT NOT NULL,
     filename TEXT NOT NULL,
     storage_key TEXT UNIQUE NOT NULL,
+    document_hash VARCHAR(64),
     metadata TEXT,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

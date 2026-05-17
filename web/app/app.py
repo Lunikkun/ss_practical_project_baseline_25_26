@@ -19,6 +19,7 @@ from .security.input_controls import (
 )
 from .services.storage_service import (
     build_storage_key,
+    compute_file_hash,
     extract_metadata,
     get_total_storage_usage_bytes,
     get_user_storage_usage_bytes,
@@ -45,6 +46,8 @@ _ip_rate_state: dict = {}      # ip → {"count": int, "window_start": float}
 _account_lock_state: dict = {} # username → {"failures": int, "locked_until": float}
 _upload_lock = threading.Lock()
 _upload_rate_state: dict = {}  # user_id -> {"count": int, "window_start": float}
+_schema_lock = threading.Lock()
+_document_hash_column_ready = False
 
 LOGIN_IP_RATE_LIMIT = int(os.getenv("LOGIN_IP_RATE_LIMIT", "50"))        # requests per minute per IP
 LOGIN_IP_RATE_WINDOW = 60                                                   # seconds
@@ -68,6 +71,39 @@ def get_db():
         password=DB_PASSWORD,
         dbname=DB_NAME,
     )
+
+
+def ensure_documents_hash_column(app: flask.Flask | None = None):
+    global _document_hash_column_ready
+    if _document_hash_column_ready:
+        return
+
+    with _schema_lock:
+        if _document_hash_column_ready:
+            return
+        conn = None
+        cur = None
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS document_hash VARCHAR(64)
+                """
+            )
+            conn.commit()
+            _document_hash_column_ready = True
+        except Exception:
+            if conn:
+                conn.rollback()
+            if app:
+                app.logger.exception("Failed to ensure documents.document_hash column")
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
 
 def create_app():
     app = flask.Flask(
@@ -96,6 +132,8 @@ def create_app():
             raise RuntimeError("Production security profile requires SESSION_COOKIE_SECURE=1.")
         if not app.config["FORCE_HTTPS"]:
             raise RuntimeError("Production security profile requires FORCE_HTTPS=1.")
+
+    ensure_documents_hash_column(app)
 
     CSRFProtect(app)
     register_routes(app)
@@ -129,7 +167,7 @@ def get_shared_documents_for_user(cur, user_id):
 def get_document_by_id(cur, document_id):
     cur.execute(
         """
-        SELECT id, owner_id, title, filename, storage_key, metadata
+        SELECT id, owner_id, title, filename, storage_key, metadata, document_hash
         FROM documents
         WHERE id = %s
         """,
@@ -484,6 +522,7 @@ def register_routes(app):
             "title": row[2],
             "filename": row[3],
             "metadata": row[5],
+            "document_hash": row[6],
         }
 
         share_candidates = [
@@ -664,6 +703,7 @@ def register_routes(app):
     @app.route("/documents/<int:document_id>/download")
     @login_required
     def download_document(document_id):
+        ensure_documents_hash_column(app)
         user_id = flask.session.get("user_id")
 
         conn = get_db()
@@ -683,13 +723,71 @@ def register_routes(app):
 
         stored_filename = row[4]
         download_filename = row[3]
-        cur.close()
-        conn.close()
+        expected_hash = row[6]
 
         upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
         file_path = upload_folder / stored_filename
         if not file_path.exists() or not file_path.is_file():
+            cur.close()
+            conn.close()
             return "Document file not found", 404
+
+        try:
+            calculated_hash = compute_file_hash(file_path)
+        except OSError:
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_compute_error",
+                target_document_id=document_id,
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            app.logger.exception(
+                "Document hash computation failed doc_id=%s user_id=%s ip=%s",
+                document_id,
+                user_id,
+                get_client_ip(),
+            )
+            return "Document temporarily unavailable", 500
+
+        if not expected_hash:
+            cur.execute(
+                """
+                UPDATE documents
+                SET document_hash = %s
+                WHERE id = %s
+                """,
+                (calculated_hash, document_id),
+            )
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_backfilled",
+                target_document_id=document_id,
+            )
+            conn.commit()
+        elif expected_hash != calculated_hash:
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_mismatch",
+                target_document_id=document_id,
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            app.logger.error(
+                "Document integrity mismatch doc_id=%s user_id=%s ip=%s",
+                document_id,
+                user_id,
+                get_client_ip(),
+            )
+            return "Document temporarily unavailable", 500
+
+        cur.close()
+        conn.close()
 
         return flask.send_from_directory(
             str(upload_folder),
@@ -912,6 +1010,7 @@ def register_routes(app):
     @app.route("/shared/<int:document_id>/download")
     @login_required
     def download_shared_document(document_id):
+        ensure_documents_hash_column(app)
         user_id = flask.session.get("user_id")
 
         conn = get_db()
@@ -931,13 +1030,71 @@ def register_routes(app):
 
         stored_filename = row[4]
         download_filename = row[3]
-        cur.close()
-        conn.close()
+        expected_hash = row[6]
 
         upload_folder = BASE_DIR / app.config["UPLOAD_FOLDER"]
         file_path = upload_folder / stored_filename
         if not file_path.exists() or not file_path.is_file():
+            cur.close()
+            conn.close()
             return "Document file not found", 404
+
+        try:
+            calculated_hash = compute_file_hash(file_path)
+        except OSError:
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_compute_error",
+                target_document_id=document_id,
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            app.logger.exception(
+                "Shared document hash computation failed doc_id=%s user_id=%s ip=%s",
+                document_id,
+                user_id,
+                get_client_ip(),
+            )
+            return "Document temporarily unavailable", 500
+
+        if not expected_hash:
+            cur.execute(
+                """
+                UPDATE documents
+                SET document_hash = %s
+                WHERE id = %s
+                """,
+                (calculated_hash, document_id),
+            )
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_backfilled",
+                target_document_id=document_id,
+            )
+            conn.commit()
+        elif expected_hash != calculated_hash:
+            write_audit_log(
+                cur,
+                action_type="document_integrity_check",
+                result="hash_mismatch",
+                target_document_id=document_id,
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            app.logger.error(
+                "Shared document integrity mismatch doc_id=%s user_id=%s ip=%s",
+                document_id,
+                user_id,
+                get_client_ip(),
+            )
+            return "Document temporarily unavailable", 500
+
+        cur.close()
+        conn.close()
 
         return flask.send_from_directory(
             str(upload_folder),
@@ -949,6 +1106,7 @@ def register_routes(app):
     @app.route("/documents/upload", methods=["POST"])
     @login_required
     def upload_document():
+        ensure_documents_hash_column(app)
         user_id = flask.session.get("user_id")
         title = flask.request.form.get("title", "Untitled").strip() or "Untitled"
         uploaded_file = flask.request.files.get("document")
@@ -1056,14 +1214,33 @@ def register_routes(app):
 
         uploaded_file.save(destination)
         os.chmod(destination, 0o600)
+
+        try:
+            document_hash = compute_file_hash(destination)
+        except OSError:
+            try:
+                if destination.exists():
+                    destination.unlink()
+            except OSError:
+                app.logger.exception("Failed cleanup after hash computation error")
+            cur.close()
+            conn.close()
+            app.logger.exception(
+                "Upload hash computation failed user_id=%s ip=%s filename=%s",
+                user_id,
+                get_client_ip(),
+                filename,
+            )
+            return "Upload failed", 500
+
         metadata = extract_metadata(destination)
 
         cur.execute(
             """
-            INSERT INTO documents (owner_id, title, filename, storage_key, metadata)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO documents (owner_id, title, filename, storage_key, document_hash, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (user_id, title, filename, storage_key, metadata),
+            (user_id, title, filename, storage_key, document_hash, metadata),
         )
         conn.commit()
 
