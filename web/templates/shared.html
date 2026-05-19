@@ -21,7 +21,7 @@
         <td>{{ doc.title }}</td>
         <td>{{ doc.filename }}</td>
         <td>
-          <a href="{{ url_for('download_shared_document', document_id=doc.id) }}">
+          <a href="{{ url_for('documents.download_shared_document', document_id=doc.id) }}">
             Download
           </a>
         </td>
@@ -31,7 +31,7 @@
           </button>
         </td>
         <td>
-          <a href="{{ url_for('document_details', document_id=doc.id) }}">
+          <a href="{{ url_for('documents.document_details', document_id=doc.id) }}">
             Details
           </a>
         </td>

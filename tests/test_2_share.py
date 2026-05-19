@@ -33,9 +33,9 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
     assert share_response.status_code in (302, 303)
 
     bob = _login("bob", "De586:Iq6}?!")
-    bob_documents = bob.get(_url("/documents"), timeout=10)
-    assert bob_documents.status_code == 200
-    assert unique_title not in bob_documents.text
+    bob_documents = bob.get(_url("/documents"), allow_redirects=False, timeout=10)
+    assert bob_documents.status_code in (302, 303)
+    assert bob_documents.headers.get("Location", "").endswith("/shared")
 
     bob_shared = bob.get(_url("/shared"), timeout=10)
     assert bob_shared.status_code == 200
@@ -60,10 +60,10 @@ def test_share_document_requires_owner_or_admin_and_enables_access_for_target_us
     bob_details_after_revoke = bob.get(_url(f"/documents/{document_id}"), timeout=10)
     assert bob_details_after_revoke.status_code == 404
 
-    bob_csrf_token = _get_csrf_token(bob, _url("/documents"))
+    bob_csrf_token = _get_csrf_token(bob, _url("/login"))
     forbidden_share = bob.post(
         _url(f"/documents/{document_id}/share"),
         data={"shared_with": "1", "csrf_token": bob_csrf_token},
         timeout=10,
     )
-    assert forbidden_share.status_code == 404
+    assert forbidden_share.status_code == 403

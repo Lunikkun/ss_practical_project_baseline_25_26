@@ -2,9 +2,10 @@
 {% block content %}
 <p id="title-preview" class="muted"></p>
 <section class="grid">
+  {% if can_upload %}
   <div class="card">
     <h2>Upload document</h2>
-    <form method="post" action="{{ url_for('upload_document') }}" enctype="multipart/form-data">
+    <form method="post" action="{{ url_for('documents.upload_document') }}" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Title</label>
       <input type="text" name="title" required>
@@ -15,6 +16,7 @@
       <button type="submit">Upload</button>
     </form>
   </div>
+  {% endif %}
 
   <div class="card">
     <h2>Documents</h2>
@@ -42,7 +44,7 @@
             </button>
           </td>
         <td>
-          <a href="{{ url_for('document_details', document_id=doc.id) }}">
+          <a href="{{ url_for('documents.document_details', document_id=doc.id) }}">
             Details
           </a>
         </td>

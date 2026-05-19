@@ -11,7 +11,7 @@ class PolicyEnforcementPoint:
 
     @staticmethod
     def can_upload(actor_role: str) -> bool:
-        return actor_role in ("user", "reviewer", "admin")
+        return actor_role in ("user", "admin")
 
     @staticmethod
     def can_share_document(actor_role: str) -> bool:

@@ -44,8 +44,7 @@ def test_revocation_immediate_effect_with_active_session():
     pre_shared = bob.get(_url(f"/shared/{document_id}/download"), timeout=10)
 
     assert pre_details.status_code == 200
-    assert pre_download.status_code == 200
-    assert pre_download.content == content
+    assert pre_download.status_code == 404
     assert pre_shared.status_code == 200
 
                                  

@@ -69,15 +69,15 @@ def test_idor_protection_share_endpoint():
 
     bob = _login("bob", "De586:Iq6}?!")
 
-    bob_csrf = _get_csrf_token(bob, _url("/documents"))
+    bob_csrf = _get_csrf_token(bob, _url("/login"))
     share_response = bob.post(
         _url(f"/documents/{document_id}/share"),
         data={"shared_with": "1", "csrf_token": bob_csrf},
         allow_redirects=False,
         timeout=10,
     )
-    assert share_response.status_code == 404, \
-        "Bob should not be able to share Alice's document"
+    assert share_response.status_code == 403, \
+        "Reviewer Bob should be blocked from share operations"
 
 
 def test_idor_protection_shared_download_endpoint():

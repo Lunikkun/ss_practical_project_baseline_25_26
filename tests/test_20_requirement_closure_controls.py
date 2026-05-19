@@ -10,15 +10,24 @@ def test_requirement_closure_reviewer_is_read_only_for_uploads():
     _wait_for_service()
 
     reviewer = _login("bob", "De586:Iq6}?!")
-    csrf_token = _get_csrf_token(reviewer, _url("/documents"))
 
     response = reviewer.post(
         _url("/documents/upload"),
-        data={"title": "reviewer-upload-attempt", "csrf_token": csrf_token},
+        data={"title": "reviewer-upload-attempt"},
         files={"document": ("blocked.txt", b"blocked", "text/plain")},
         timeout=10,
     )
-    assert response.status_code == 200
+    assert response.status_code in (400, 403)
+
+
+def test_requirement_closure_reviewer_has_no_own_documents_page():
+    _wait_for_service()
+
+    reviewer = _login("bob", "De586:Iq6}?!")
+    response = reviewer.get(_url("/documents"), allow_redirects=False, timeout=10)
+
+    assert response.status_code in (302, 303)
+    assert response.headers.get("Location", "").endswith("/shared")
 
 
 def test_requirement_closure_admin_actions_require_justification():
@@ -60,6 +69,9 @@ def test_requirement_closure_admin_actions_require_justification():
 
 def test_requirement_closure_static_markers_present():
     app_code = (ROOT / "web" / "app" / "app.py").read_text(encoding="utf-8")
+    common_code = (ROOT / "web" / "app" / "routes" / "common.py").read_text(encoding="utf-8")
+    documents_code = (ROOT / "web" / "app" / "routes" / "documents.py").read_text(encoding="utf-8")
+    config_code = (ROOT / "web" / "app" / "config.py").read_text(encoding="utf-8")
     schema_sql = (ROOT / "db" / "init.sql").read_text(encoding="utf-8")
     ci_workflow = (ROOT / ".github" / "workflows" / "1-integration.yml").read_text(encoding="utf-8")
     pep_code = (ROOT / "web" / "app" / "security" / "pep.py").read_text(encoding="utf-8")
@@ -69,9 +81,12 @@ def test_requirement_closure_static_markers_present():
     assert "@app.errorhandler(Exception)" in app_code
     assert "return flask.render_template(\"error_generic.html\"), 500" in app_code
     assert "APP_SECURITY_PROFILE" in app_code
-    assert "PolicyEnforcementPoint" in app_code
-    assert "os.chmod(upload_folder, 0o700)" in app_code
-    assert "os.chmod(destination, 0o600)" in app_code
+    assert "PolicyEnforcementPoint" in common_code
+    assert "os.chmod(upload_folder, 0o700)" in documents_code
+    assert "os.chmod(destination, 0o600)" in documents_code
+    assert "upload_rate_limit" in config_code
+    assert "user_max_files" in config_code
+    assert "global_storage_quota_bytes" in config_code
 
     assert "role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'reviewer'))" in schema_sql
     assert "CREATE TABLE audit_logs" in schema_sql

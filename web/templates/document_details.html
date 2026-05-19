@@ -17,12 +17,12 @@
     {% endif %}
   </p>
   <p>
-    <a href="{{ url_for('download_document', document_id=document.id) }}">Download</a>
+    <a href="{{ url_for('documents.download_document', document_id=document.id) }}">Download</a>
   </p>
 
   {% if can_share %}
     <h3>Share document</h3>
-    <form method="post" action="{{ url_for('share_document', document_id=document.id) }}">
+    <form method="post" action="{{ url_for('documents.share_document', document_id=document.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="shared_with">Share with user</label>
       <select id="shared_with" name="shared_with" required>
@@ -40,7 +40,7 @@
         {% for recipient in share_recipients %}
           <li>
             {{ recipient.username }}
-            <form method="post" action="{{ url_for('revoke_document_share', document_id=document.id) }}" style="display:inline; margin-left:0.5rem;">
+            <form method="post" action="{{ url_for('documents.revoke_document_share', document_id=document.id) }}" style="display:inline; margin-left:0.5rem;">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="shared_with" value="{{ recipient.id }}">
               <button type="submit" class="btn-inline">Revoke</button>

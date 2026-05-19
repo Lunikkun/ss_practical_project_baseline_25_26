@@ -50,17 +50,22 @@ def test_storage_dos_attack_tree_quota_controls_present_regression():
     """
     Static regression: verify anti-storage-exhaustion controls are present.
     """
-    with open("web/app/app.py", "r", encoding="utf-8") as f:
-        source = f.read()
+    with open("web/app/config.py", "r", encoding="utf-8") as f:
+        config_source = f.read()
+    with open("web/app/routes/documents.py", "r", encoding="utf-8") as f:
+        documents_source = f.read()
+    with open("web/app/services/storage_service.py", "r", encoding="utf-8") as f:
+        storage_source = f.read()
 
-    required_markers = [
-        "UPLOAD_RATE_LIMIT",
-        "USER_MAX_FILES",
-        "USER_STORAGE_QUOTA_BYTES",
-        "GLOBAL_STORAGE_QUOTA_BYTES",
-        "MIN_FREE_DISK_BYTES",
-        "get_total_storage_usage_bytes",
-        "get_user_storage_usage_bytes",
-    ]
-    for marker in required_markers:
-        assert marker in source
+    for marker in (
+        "upload_rate_limit",
+        "user_max_files",
+        "user_storage_quota_bytes",
+        "global_storage_quota_bytes",
+        "min_free_disk_bytes",
+    ):
+        assert marker in config_source
+
+    assert "get_total_storage_usage_bytes" in documents_source
+    assert "check_upload_user_quota" in documents_source
+    assert "get_user_storage_usage_bytes" in storage_source
