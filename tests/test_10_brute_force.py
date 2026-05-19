@@ -1,15 +1,3 @@
-"""
-Scenario 4 – Brute Force & Credential Stuffing (Account Takeover)
-
-Validate protections against:
-1. User Enumeration: identical responses for unknown user vs wrong password.
-2. Account Lockout: after LOGIN_LOCKOUT_THRESHOLD failed attempts, the account
-    is temporarily locked (HTTP 429).
-3. IP Rate Limiting: after LOGIN_IP_RATE_LIMIT POST requests in the same minute,
-    the IP receives HTTP 429.
-4. Security headers are present also on 429 responses.
-"""
-
 import os
 import re
 import time
@@ -80,7 +68,7 @@ def _ensure_login_not_rate_limited(session: requests.Session):
     retry_user = _new_probe_user("ip_warmup_retry")
     retry_resp = _post_login(session, retry_user, "wrongpass")
     assert retry_resp.status_code != 429, (
-        "IP ancora in rate-limit dopo attesa finestra; stato ambiente non pulito"
+        "IP still in rate limiting"
     )
 
 

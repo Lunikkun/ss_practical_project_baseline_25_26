@@ -14,15 +14,18 @@ services:
     expose:
       - "8000"
     environment:
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_NAME: docdb
-      SECRET_KEY: dev-secret-key
-      API_KEY: 123456789abcdef
-      APP_BASE_URL: http://localhost:8000
-      MAX_UPLOAD_BYTES: "1048576"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      SECRET_KEY: ${SECRET_KEY}
+      API_KEY: ${API_KEY}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1048576}
+      APP_SECURITY_PROFILE: ${APP_SECURITY_PROFILE:-production}
+      FORCE_HTTPS: ${FORCE_HTTPS:-1}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-1}
     depends_on:
       - db
     restart: unless-stopped
@@ -32,15 +35,18 @@ services:
     expose:
       - "8000"
     environment:
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_NAME: docdb
-      SECRET_KEY: dev-secret-key
-      API_KEY: 123456789abcdef
-      APP_BASE_URL: http://localhost:8000
-      MAX_UPLOAD_BYTES: "1048576"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      SECRET_KEY: ${SECRET_KEY}
+      API_KEY: ${API_KEY}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1048576}
+      APP_SECURITY_PROFILE: ${APP_SECURITY_PROFILE:-production}
+      FORCE_HTTPS: ${FORCE_HTTPS:-1}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-1}
     depends_on:
       - db
     restart: unless-stopped

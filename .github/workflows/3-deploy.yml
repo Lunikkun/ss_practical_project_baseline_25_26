@@ -20,7 +20,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -54,14 +54,56 @@ jobs:
           docker pull "${{ steps.deploy-images.outputs.web_image }}"
           docker pull "${{ steps.deploy-images.outputs.db_image }}"
 
-      - name: Stop existing deployment
+      - name: Prepare deployment environment
+        id: deploy-env
         run: |
-          docker compose -f docker-compose.deploy.yml down || true
+          DEPLOY_DB_PASSWORD="deploy-db-$(openssl rand -hex 16)"
+          DEPLOY_SECRET_KEY="deploy-secret-$(openssl rand -hex 32)"
+          DEPLOY_API_KEY="deploy-api-$(openssl rand -hex 24)"
+
+          echo "db_password=${DEPLOY_DB_PASSWORD}" >> "$GITHUB_OUTPUT"
+          echo "secret_key=${DEPLOY_SECRET_KEY}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${DEPLOY_API_KEY}" >> "$GITHUB_OUTPUT"
+
+          echo "::add-mask::${DEPLOY_DB_PASSWORD}"
+          echo "::add-mask::${DEPLOY_SECRET_KEY}"
+          echo "::add-mask::${DEPLOY_API_KEY}"
+
+      - name: Validate deploy compose rendering
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
+        run: |
+          docker compose -f docker-compose.deploy.yml config > /tmp/deploy-compose-resolved.yml
 
       - name: Start deployment
         env:
           WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
           DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml up -d
 
@@ -98,10 +140,60 @@ jobs:
 
       - name: Show deployed container status on failure
         if: failure()
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml ps
 
       - name: Show container logs on failure
         if: failure()
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh
+
+      - name: Teardown deployment
+        if: always()
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
+        run: |
+          docker compose -f docker-compose.deploy.yml down -v || true

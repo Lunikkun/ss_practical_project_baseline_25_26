@@ -20,7 +20,8 @@ CREATE TABLE documents (
 CREATE TABLE document_shares (
     id SERIAL PRIMARY KEY,
     document_id INTEGER REFERENCES documents(id),
-    shared_with INTEGER REFERENCES users(id)
+    shared_with INTEGER REFERENCES users(id),
+    UNIQUE (document_id, shared_with)
 );
 
 CREATE TABLE audit_logs (
