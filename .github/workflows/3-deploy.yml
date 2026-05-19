@@ -107,20 +107,61 @@ jobs:
         run: |
           docker compose -f docker-compose.deploy.yml up -d
 
-      - name: Wait for application
+      - name: Show initial deployment status
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
-          timeout=60
+          docker compose -f docker-compose.deploy.yml ps
+
+      - name: Wait for application
+        env:
+          WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
+          DB_IMAGE: ${{ steps.deploy-images.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.deploy-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.deploy-env.outputs.secret_key }}
+          API_KEY: ${{ steps.deploy-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
+        run: |
+          timeout=180
           elapsed=0
 
           until curl -fs http://localhost:8000/health > /dev/null; do
             if [ "$elapsed" -ge "$timeout" ]; then
               echo "Application did not become ready within ${timeout}s"
+              echo "--- compose status ---"
+              docker compose -f docker-compose.deploy.yml ps
+              echo "--- last logs ---"
+              docker compose -f docker-compose.deploy.yml logs --no-color --tail 120 | .github/scripts/redact_ci_logs.sh
               exit 1
             fi
 
-            echo "Waiting for application..."
-            sleep 2
-            elapsed=$((elapsed+2))
+            echo "Waiting for application... (${elapsed}s/${timeout}s)"
+            if [ $((elapsed % 20)) -eq 0 ]; then
+              docker compose -f docker-compose.deploy.yml ps
+            fi
+            sleep 5
+            elapsed=$((elapsed+5))
           done
 
           echo "Application is ready"
