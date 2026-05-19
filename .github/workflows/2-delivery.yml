@@ -78,27 +78,114 @@ jobs:
           docker pull "${{ steps.image-refs.outputs.web_image }}"
           docker pull "${{ steps.image-refs.outputs.db_image }}"
 
+      - name: Prepare delivery environment variables
+        id: delivery-env
+        run: |
+          DELIVERY_DB_PASSWORD="delivery-db-$(openssl rand -hex 16)"
+          DELIVERY_SECRET_KEY="delivery-secret-$(openssl rand -hex 32)"
+          DELIVERY_API_KEY="delivery-api-$(openssl rand -hex 24)"
+
+          echo "db_password=${DELIVERY_DB_PASSWORD}" >> "$GITHUB_OUTPUT"
+          echo "secret_key=${DELIVERY_SECRET_KEY}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${DELIVERY_API_KEY}" >> "$GITHUB_OUTPUT"
+
+          echo "::add-mask::${DELIVERY_DB_PASSWORD}"
+          echo "::add-mask::${DELIVERY_SECRET_KEY}"
+          echo "::add-mask::${DELIVERY_API_KEY}"
+
+      - name: Validate delivery compose rendering
+        env:
+          WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
+          DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
+        run: |
+          docker compose -f docker-compose.deploy.yml config > /tmp/delivery-compose-resolved.yml
+
       - name: Start delivery environment
         env:
           WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
           DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml up -d
 
-      - name: Wait for application
+      - name: Show initial delivery status
+        env:
+          WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
+          DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
-          timeout=60
+          docker compose -f docker-compose.deploy.yml ps
+
+      - name: Wait for application
+        env:
+          WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
+          DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
+        run: |
+          timeout=180
           elapsed=0
 
           until curl -fs http://localhost:8000/health > /dev/null; do
             if [ "$elapsed" -ge "$timeout" ]; then
               echo "Application did not become ready within ${timeout}s"
+              echo "--- compose status ---"
+              docker compose -f docker-compose.deploy.yml ps
+              echo "--- last logs ---"
+              docker compose -f docker-compose.deploy.yml logs --no-color --tail 120 | .github/scripts/redact_ci_logs.sh
               exit 1
             fi
 
-            echo "Waiting for application..."
-            sleep 2
-            elapsed=$((elapsed+2))
+            echo "Waiting for application... (${elapsed}s/${timeout}s)"
+            if [ $((elapsed % 20)) -eq 0 ]; then
+              docker compose -f docker-compose.deploy.yml ps
+            fi
+            sleep 5
+            elapsed=$((elapsed+5))
           done
 
           echo "Application is ready"
@@ -137,6 +224,18 @@ jobs:
         env:
           WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
           DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh
 
@@ -145,5 +244,17 @@ jobs:
         env:
           WEB_IMAGE: ${{ steps.image-refs.outputs.web_image }}
           DB_IMAGE: ${{ steps.image-refs.outputs.db_image }}
+          DB_USER: postgres
+          DB_PASSWORD: ${{ steps.delivery-env.outputs.db_password }}
+          DB_NAME: docdb
+          DB_HOST: db
+          DB_PORT: "5432"
+          SECRET_KEY: ${{ steps.delivery-env.outputs.secret_key }}
+          API_KEY: ${{ steps.delivery-env.outputs.api_key }}
+          APP_BASE_URL: http://localhost:8000
+          MAX_UPLOAD_BYTES: "1048576"
+          APP_SECURITY_PROFILE: dev
+          FORCE_HTTPS: "0"
+          SESSION_COOKIE_SECURE: "0"
         run: |
           docker compose -f docker-compose.deploy.yml down -v --remove-orphans
