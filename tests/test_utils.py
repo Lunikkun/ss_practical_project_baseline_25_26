@@ -1,30 +1,17 @@
-"""
-Shared utilities for test files.
-
-Centralizes common functions used across all test modules to reduce duplication
-and improve maintainability.
-"""
-
 import io
 import os
 import re
 import time
-
 import requests
-
 
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 LOGIN_IP_RATE_WINDOW = int(os.getenv("LOGIN_IP_RATE_WINDOW", "60"))
 UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
 
-
 def _url(path: str) -> str:
-    """Construct a full URL from a path, using BASE_URL."""
     return f"{BASE_URL}/{path.lstrip('/')}"
 
-
 def _wait_for_service(timeout: int = 30):
-    """Poll the /health endpoint until the service is available or timeout."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -36,18 +23,14 @@ def _wait_for_service(timeout: int = 30):
         time.sleep(1)
     raise RuntimeError("Service not available")
 
-
 def _get_csrf_token(session: requests.Session, url: str) -> str:
-    """GET a URL and extract the CSRF token from the hidden form input."""
     response = session.get(url, timeout=10)
     assert response.status_code == 200, f"Could not GET {url}: {response.status_code}"
     match = re.search(r'<input[^>]+name="csrf_token"[^>]+value="([^"]+)"', response.text)
     assert match is not None, f"No CSRF token found on {url}"
     return match.group(1)
 
-
 def _login(username: str, password: str) -> requests.Session:
-    """Login with username/password and return authenticated session."""
     session = requests.Session()
     csrf_token = _get_csrf_token(session, _url("/login"))
     response = session.post(
@@ -71,9 +54,7 @@ def _login(username: str, password: str) -> requests.Session:
         f"Login failed for {username}: got {response.status_code}"
     return session
 
-
 def _upload_document(session: requests.Session, title: str, filename: str, content: bytes):
-    """Upload a document with given title and filename."""
     csrf_token = _get_csrf_token(session, _url("/documents"))
     response = session.post(
         _url("/documents/upload"),
@@ -97,9 +78,7 @@ def _upload_document(session: requests.Session, title: str, filename: str, conte
     assert response.status_code in (302, 303), \
         f"Upload failed: got {response.status_code}"
 
-
 def _find_document_id(session: requests.Session, title: str) -> int:
-    """Find document ID by title in /documents page."""
     response = session.get(_url("/documents"), timeout=10)
     assert response.status_code == 200
 
@@ -108,22 +87,16 @@ def _find_document_id(session: requests.Session, title: str) -> int:
     assert match is not None, "Uploaded document not found in listing"
     return int(match.group(1))
 
-
 def _find_user_id_from_share_form(session: requests.Session, document_id: int, username: str) -> int:
-    """Extract user ID from share form options dropdown."""
     response = session.get(_url(f"/documents/{document_id}"), timeout=10)
     assert response.status_code == 200
-
     pattern = rf"<option value=\"(\d+)\">{re.escape(username)} \(id: \d+\)</option>"
     match = re.search(pattern, response.text)
     assert match is not None, f"User {username} not found in share options"
     return int(match.group(1))
 
-
 def _extract_user_id_from_admin_page(page_html: str, username: str) -> int:
-    """Extract user ID from admin users listing page."""
     pattern = rf"<tr[^>]*>\s*<td>(\d+)</td>\s*<td>{re.escape(username)}</td>"
     match = re.search(pattern, page_html)
     assert match is not None, f"User {username} not found in admin page"
     return int(match.group(1))
-

@@ -1,5 +1,4 @@
 import uuid
-
 from test_utils import (
     _find_document_id,
     _find_user_id_from_share_form,
@@ -10,12 +9,8 @@ from test_utils import (
     _wait_for_service,
 )
 
-
 def test_revocation_immediate_effect_with_active_session():
-    """
-    Scenario 7: a former reviewer keeps an active session but loses access.
-    After revoke, access must be blocked immediately on all document endpoints.
-    """
+
     _wait_for_service()
 
     unique_title = f"scenario7-revoke-{uuid.uuid4().hex[:8]}"
@@ -66,12 +61,8 @@ def test_revocation_immediate_effect_with_active_session():
     assert post_download.status_code == 404
     assert post_shared.status_code == 404
 
-
 def test_authenticated_responses_disable_caching():
-    """
-    Scenario 7 hardening: authenticated content must not be cacheable,
-    preventing stale content after permission revocation.
-    """
+ 
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")

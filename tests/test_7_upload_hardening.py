@@ -3,12 +3,9 @@ import os
 import re
 import time
 import uuid
-
 from test_utils import _login, _url, _wait_for_service, _get_csrf_token
 
-
 UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
-
 
 def test_upload_rejects_executable_script_extensions():
     _wait_for_service()
@@ -40,7 +37,6 @@ def test_upload_rejects_executable_script_extensions():
     assert documents_response.status_code == 200
     assert unique_title not in documents_response.text
     assert "File type not allowed." in documents_response.text
-
 
 def test_upload_accepts_safe_text_documents():
     _wait_for_service()

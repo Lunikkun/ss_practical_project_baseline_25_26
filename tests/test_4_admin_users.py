@@ -1,6 +1,5 @@
 from test_utils import _login, _url, _wait_for_service
 
-
 def test_admin_users_requires_admin_role():
     _wait_for_service()
 

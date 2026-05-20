@@ -1,7 +1,5 @@
 import requests
-
 from test_utils import _login, _url, _wait_for_service, _extract_user_id_from_admin_page, _get_csrf_token
-
 
 def test_admin_enable_disable_endpoints_enforce_rbac_and_toggle_user_status():
     _wait_for_service()

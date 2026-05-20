@@ -1,8 +1,5 @@
 def test_monitoring_regression_denied_access_logging_hooks_present():
-    """
-    Scenario 6 regression: ensure denied-access audit logging hooks remain
-    present on critical document/share/download paths.
-    """
+
     with open("web/app/routes/common.py", "r", encoding="utf-8") as f:
         common_source = f.read()
     with open("web/app/routes/documents.py", "r", encoding="utf-8") as f:

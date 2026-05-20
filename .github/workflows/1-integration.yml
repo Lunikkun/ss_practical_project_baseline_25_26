@@ -54,7 +54,6 @@ jobs:
           SECRET_KEY=${CI_SECRET_KEY}
           EOF
 
-          echo "Generated ephemeral CI runtime credentials (masked)."
           echo "::add-mask::${CI_DB_PASSWORD}"
           echo "::add-mask::${CI_SECRET_KEY}"
 
@@ -64,9 +63,8 @@ jobs:
 
       - name: Check service status
         run: |
-          echo "=== Checking service status ==="
           docker compose ps
-          echo "=== Waiting for database to be ready ==="
+          echo "=== Waiting for database ==="
           sleep 10
 
       - name: Wait for application
@@ -129,12 +127,6 @@ jobs:
             tests/test_7_upload_hardening.py \
             tests/test_8_idor_protection.py \
             tests/test_9_privilege_escalation.py
-
-      - name: Run security verification tests
-        env:
-          APP_BASE_URL: http://localhost:8000
-        run: |
-          pytest -q \
             tests/test_10_brute_force.py \
             tests/test_11_session_hijacking.py \
             tests/test_12_idor_attack_tree.py \
@@ -151,7 +143,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/zap-report"
           chmod 777 "$RUNNER_TEMP/zap-report"
-
           docker run --rm --network host \
             -v "$RUNNER_TEMP/zap-report:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
@@ -170,7 +161,7 @@ jobs:
 
           report_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "zap-report" / "zap-baseline.json"
           if not report_path.exists():
-              print("Note: ZAP report not extracted; DAST baseline scan executed with -I flag (warnings non-blocking)")
+              print("ZAP report not extracted; DAST baseline scan executed with -I flag (warnings non-blocking)")
               sys.exit(0)
 
           try:

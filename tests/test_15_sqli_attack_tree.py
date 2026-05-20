@@ -1,16 +1,10 @@
 import uuid
-
 from test_utils import _find_document_id, _login, _upload_document, _url, _wait_for_service
-
 
 SQLI_PAYLOAD = "' UNION SELECT password FROM users --"
 
-
 def test_sqli_attack_tree_blocks_suspicious_search_payload_documents():
-    """
-    Scenario 9: SQLi against search/listing.
-    A typical SQL injection payload in search query must be blocked.
-    """
+
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")
@@ -19,11 +13,8 @@ def test_sqli_attack_tree_blocks_suspicious_search_payload_documents():
     assert response.status_code == 400
     assert "Invalid search query" in response.text
 
-
 def test_sqli_attack_tree_blocks_suspicious_search_payload_shared():
-    """
-    Scenario 9: /shared view must also block SQLi payloads in query strings.
-    """
+
     _wait_for_service()
 
     bob = _login("bob", "De586:Iq6}?!")
@@ -32,11 +23,8 @@ def test_sqli_attack_tree_blocks_suspicious_search_payload_shared():
     assert response.status_code == 400
     assert "Invalid search query" in response.text
 
-
 def test_sqli_attack_tree_search_functionality_remains_usable_for_legit_terms():
-    """
-    Non-disruptive defense: legitimate input still works and filters results.
-    """
+
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")
@@ -56,11 +44,8 @@ def test_sqli_attack_tree_search_functionality_remains_usable_for_legit_terms():
     assert title_keep in response.text
     assert title_hide not in response.text
 
-
 def test_sqli_attack_tree_no_dynamic_sql_string_concatenation_regression():
-    """
-    Static regression: disallow common dangerous dynamic SQL construction patterns.
-    """
+
     with open("web/app/app.py", "r", encoding="utf-8") as f:
         source = f.read()
 

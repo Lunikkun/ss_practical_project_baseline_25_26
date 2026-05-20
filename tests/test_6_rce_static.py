@@ -1,7 +1,6 @@
 import pathlib
 import re
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "web"
 
@@ -12,7 +11,6 @@ DISALLOWED_PATTERNS = {
     r"\beval\(": "eval executes dynamic Python code",
     r"\bexec\(": "exec executes dynamic Python code",
 }
-
 
 def test_no_rce():
     findings = []

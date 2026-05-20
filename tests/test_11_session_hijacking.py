@@ -1,20 +1,15 @@
 import os
 import re
 import time
-
 import pytest
 import requests
-
 from test_utils import _url, _wait_for_service
 
-
 LOGIN_IP_RATE_WINDOW = 60
-
 
 def _get_session_cookie_value(session: requests.Session) -> str:
                                                                                
     return session.cookies.get("__Host-session") or session.cookies.get("session")
-
 
 def _login_and_get_response(username: str, password: str):
     session = requests.Session()
@@ -47,12 +42,7 @@ def _login_and_get_response(username: str, password: str):
         )
     return session, response
 
-
 def test_session_cookie_flags_present_on_login():
-    """
-    Verify that the session cookie includes baseline anti-hijacking flags
-    at browser level: HttpOnly and SameSite.
-    """
     _wait_for_service()
 
     _, login_response = _login_and_get_response("alice", "tth1mJj5?£58")
@@ -62,12 +52,8 @@ def test_session_cookie_flags_present_on_login():
     assert "HttpOnly" in set_cookie, "Session cookie must include HttpOnly"
     assert "SameSite=" in set_cookie, "Session cookie must include SameSite"
 
-
 def test_session_replay_rejected_on_fingerprint_mismatch():
-    """
-    Simulate stolen-cookie replay from a client with a different User-Agent.
-    With session fingerprinting enabled, replay must be invalidated.
-    """
+ 
     _wait_for_service()
 
     victim, login_response = _login_and_get_response("alice", "tth1mJj5?£58")
@@ -92,12 +78,8 @@ def test_session_replay_rejected_on_fingerprint_mismatch():
     )
     assert replay.headers.get("Location") == "/login", "Replay must be redirected to login"
 
-
 def test_hsts_and_csp_headers_are_present():
-    """
-    Verify presence of supporting anti-hijacking/XSS headers:
-    HSTS and CSP.
-    """
+
     _wait_for_service()
 
     response = requests.get(_url("/health"), timeout=10)
@@ -109,23 +91,16 @@ def test_hsts_and_csp_headers_are_present():
     assert "max-age=" in hsts, "Missing Strict-Transport-Security max-age"
     assert "default-src 'self'" in csp, "Missing baseline Content-Security-Policy"
 
-
 def test_client_script_avoids_innerhtml_sink():
-    """
-    XSS regression: client code must not use innerHTML with external input.
-    """
+ 
     with open("web/static/script.js", "r", encoding="utf-8") as f:
         script = f.read()
 
     assert "innerHTML" not in script, "innerHTML sink found in script.js"
     assert "textContent" in script, "Expected safe textContent rendering in script.js"
 
-
 def test_https_forced_uses_secure_host_prefixed_cookie():
-    """
-    If FORCE_HTTPS=1, session cookie must be Secure and use the __Host-
-    prefix to reduce cookie confusion/injection risk.
-    """
+
     if os.getenv("FORCE_HTTPS", "0") != "1":
         pytest.skip("FORCE_HTTPS is not enabled in this environment")
 

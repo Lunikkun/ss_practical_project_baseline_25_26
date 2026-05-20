@@ -10,7 +10,6 @@ from test_utils import (
     _get_csrf_token,
 )
 
-
 def test_shared_download_requires_active_share():
     _wait_for_service()
 

@@ -1,5 +1,4 @@
 import uuid
-
 from test_utils import (
     _login,
     _url,
@@ -10,12 +9,8 @@ from test_utils import (
     _get_csrf_token,
 )
 
-
 def test_idor_protection_download_endpoint():
-    """
-    Verify that an unauthorized authenticated user cannot download a document
-    by directly manipulating the document ID in the URL.
-    """
+
     _wait_for_service()
 
     unique_title = f"idor-test-{uuid.uuid4().hex[:8]}"
@@ -31,12 +26,8 @@ def test_idor_protection_download_endpoint():
     assert download_response.status_code == 404, \
         "Bob should not be able to download Alice's document"
 
-
 def test_idor_protection_details_endpoint():
-    """
-    Verify that an unauthorized user cannot view details of another user's
-    document through direct ID manipulation.
-    """
+
     _wait_for_service()
 
     unique_title = f"idor-details-{uuid.uuid4().hex[:8]}"
@@ -53,12 +44,8 @@ def test_idor_protection_details_endpoint():
     assert unique_title not in details_response.text, \
         "Document title should not be leaked in error response"
 
-
 def test_idor_protection_share_endpoint():
-    """
-    Verify that an authenticated but unauthorized user cannot share another
-    user's document.
-    """
+
     _wait_for_service()
 
     unique_title = f"idor-share-{uuid.uuid4().hex[:8]}"
@@ -79,12 +66,8 @@ def test_idor_protection_share_endpoint():
     assert share_response.status_code == 403, \
         "Reviewer Bob should be blocked from share operations"
 
-
 def test_idor_protection_shared_download_endpoint():
-    """
-    Verify that access to /shared/<id>/download is restricted only to
-    documents actually shared with the authenticated user.
-    """
+
     _wait_for_service()
 
     unique_title = f"idor-shared-download-{uuid.uuid4().hex[:8]}"

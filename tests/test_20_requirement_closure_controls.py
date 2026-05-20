@@ -1,10 +1,7 @@
 import pathlib
-
 from test_utils import _extract_user_id_from_admin_page, _get_csrf_token, _login, _url, _wait_for_service
 
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-
 
 def test_requirement_closure_reviewer_is_read_only_for_uploads():
     _wait_for_service()
@@ -19,7 +16,6 @@ def test_requirement_closure_reviewer_is_read_only_for_uploads():
     )
     assert response.status_code in (400, 403)
 
-
 def test_requirement_closure_reviewer_has_no_own_documents_page():
     _wait_for_service()
 
@@ -28,7 +24,6 @@ def test_requirement_closure_reviewer_has_no_own_documents_page():
 
     assert response.status_code in (302, 303)
     assert response.headers.get("Location", "").endswith("/shared")
-
 
 def test_requirement_closure_admin_actions_require_justification():
     _wait_for_service()
@@ -66,7 +61,6 @@ def test_requirement_closure_admin_actions_require_justification():
     )
     assert enable_ok.status_code in (302, 303)
 
-
 def test_requirement_closure_static_markers_present():
     app_code = (ROOT / "web" / "app" / "app.py").read_text(encoding="utf-8")
     common_code = (ROOT / "web" / "app" / "routes" / "common.py").read_text(encoding="utf-8")
@@ -87,17 +81,14 @@ def test_requirement_closure_static_markers_present():
     assert "upload_rate_limit" in config_code
     assert "user_max_files" in config_code
     assert "global_storage_quota_bytes" in config_code
-
     assert "role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'reviewer'))" in schema_sql
     assert "CREATE TABLE audit_logs" in schema_sql
     assert "storage_key TEXT UNIQUE NOT NULL" in schema_sql
-
     assert "class PolicyEnforcementPoint" in pep_code
     assert "def can_manage_document" in pep_code
     assert "def is_safe_upload" in input_controls_code
     assert "def is_suspicious_search_query" in input_controls_code
     assert "def build_storage_key" in storage_code
     assert "def get_user_storage_usage_bytes" in storage_code
-
     assert "bandit -q -r web/app" in ci_workflow
     assert "pip-audit -r web/requirements.lock --strict" in ci_workflow

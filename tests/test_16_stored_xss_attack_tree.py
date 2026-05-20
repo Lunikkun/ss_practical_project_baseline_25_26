@@ -2,19 +2,14 @@ import io
 import os
 import time
 import uuid
-
 from test_utils import _find_document_id, _get_csrf_token, _login, _url, _wait_for_service
-
 
 MALICIOUS_TITLE = "<script>alert('xss')</script>"
 MALICIOUS_FILENAME = "<script>alert(1)</script>.txt"
 UPLOAD_RATE_WINDOW = int(os.getenv("UPLOAD_RATE_WINDOW", "60"))
 
-
 def test_stored_xss_attack_tree_rejects_malicious_title_payload():
-    """
-    Scenario 10: block XSS payload in metadata title at upload time.
-    """
+
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")
@@ -45,11 +40,8 @@ def test_stored_xss_attack_tree_rejects_malicious_title_payload():
     assert "Invalid document title." in documents_page.text
     assert MALICIOUS_TITLE not in documents_page.text
 
-
 def test_stored_xss_attack_tree_sanitizes_filename_and_no_raw_script_rendered():
-    """
-    Scenario 10: malicious filename is normalized and never rendered as raw script in UI.
-    """
+
     _wait_for_service()
 
     alice = _login("alice", "tth1mJj5?£58")
@@ -85,11 +77,8 @@ def test_stored_xss_attack_tree_sanitizes_filename_and_no_raw_script_rendered():
     assert MALICIOUS_FILENAME not in documents_page.text
     assert MALICIOUS_FILENAME not in details_page.text
 
-
 def test_stored_xss_attack_tree_static_regression_no_unsafe_template_sinks():
-    """
-    Static regression: avoid template sinks that disable HTML escaping.
-    """
+
     template_files = [
         "web/templates/base.html",
         "web/templates/documents.html",

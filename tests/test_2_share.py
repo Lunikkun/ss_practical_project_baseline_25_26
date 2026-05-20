@@ -10,7 +10,6 @@ from test_utils import (
     _get_csrf_token,
 )
 
-
 def test_share_document_requires_owner_or_admin_and_enables_access_for_target_user():
     _wait_for_service()
 

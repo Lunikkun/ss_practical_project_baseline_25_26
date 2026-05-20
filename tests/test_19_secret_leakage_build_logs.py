@@ -2,11 +2,8 @@ from pathlib import Path
 
 from test_utils import _wait_for_service
 
-
 def test_secret_leakage_workflows_use_log_redaction_on_failure():
-    """
-    Scenario 13: workflows must not print raw container logs on failures.
-    """
+
     _wait_for_service()
 
     delivery = Path(".github/workflows/2-delivery.yml").read_text(encoding="utf-8")
@@ -15,11 +12,8 @@ def test_secret_leakage_workflows_use_log_redaction_on_failure():
     assert "logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh" in delivery
     assert "logs --no-color --tail 300 | .github/scripts/redact_ci_logs.sh" in deploy
 
-
 def test_secret_leakage_redaction_script_masks_common_patterns():
-    """
-    Static regression: redaction script must include key masking markers.
-    """
+
     script = Path(".github/scripts/redact_ci_logs.sh").read_text(encoding="utf-8")
 
     expected_markers = [
@@ -32,11 +26,8 @@ def test_secret_leakage_redaction_script_masks_common_patterns():
     for marker in expected_markers:
         assert marker in script
 
-
 def test_secret_leakage_workflows_avoid_plaintext_debug_commands():
-    """
-    Static regression: avoid debug commands that dump env values in plaintext.
-    """
+
     workflow_files = [
         Path(".github/workflows/1-integration.yml"),
         Path(".github/workflows/2-delivery.yml"),

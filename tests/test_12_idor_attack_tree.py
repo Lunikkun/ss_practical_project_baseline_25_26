@@ -1,14 +1,8 @@
 import uuid
-
 from test_utils import _find_document_id, _login, _upload_document, _url, _wait_for_service
 
-
 def test_idor_attack_tree_sequential_id_tampering_is_blocked():
-    """
-    Scenario 6 (Attack Tree): an authenticated attacker tries ID predictability
-    and URL tampering. Expected defense: uniform 404 for unauthorized resources
-    without existence leakage.
-    """
+
     _wait_for_service()
 
     unique_title = f"scenario6-seq-{uuid.uuid4().hex[:8]}"
@@ -39,13 +33,8 @@ def test_idor_attack_tree_sequential_id_tampering_is_blocked():
             f"Expected 404 on download tampering for id={candidate_id}, got {download_response.status_code}"
         )
 
-
 def test_idor_attack_tree_shared_endpoint_requires_explicit_share():
-    """
-    Scenario 6: replay against /shared/<id>/download without active share.
-    Expected defense: uniform 404 (no difference between 'not found' and
-    'not authorized').
-    """
+
     _wait_for_service()
 
     unique_title = f"scenario6-shared-{uuid.uuid4().hex[:8]}"

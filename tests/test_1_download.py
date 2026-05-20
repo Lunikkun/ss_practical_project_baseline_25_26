@@ -1,9 +1,7 @@
 import uuid
 import pathlib
 import subprocess
-
 from test_utils import _login, _url, _wait_for_service, _upload_document, _find_document_id
-
 
 def test_download_document_requires_authorized_access():
     _wait_for_service()
@@ -22,7 +20,6 @@ def test_download_document_requires_authorized_access():
     bob = _login("bob", "De586:Iq6}?!")
     forbidden_download = bob.get(_url(f"/documents/{document_id}/download"), timeout=10)
     assert forbidden_download.status_code == 404
-
 
 def test_download_document_detects_integrity_mismatch():
     _wait_for_service()
