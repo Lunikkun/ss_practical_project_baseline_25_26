@@ -57,6 +57,11 @@ jobs:
           echo "::add-mask::${CI_DB_PASSWORD}"
           echo "::add-mask::${CI_SECRET_KEY}"
 
+      - name: Generate temporary TLS certificates for CI
+        run: |
+          mkdir -p edge/certs
+          openssl req -x509 -nodes -newkey rsa:2048 -keyout edge/certs/localhost.key -out edge/certs/localhost.crt -days 1 -subj "/C=PT/ST=Coimbra/L=Coimbra/O=CI/CN=localhost"
+
       - name: Start application stack for validation
         run: |
           docker compose up -d --build
