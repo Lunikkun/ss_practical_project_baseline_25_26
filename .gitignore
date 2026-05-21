@@ -30,6 +30,11 @@ web/uploads/*
 *.pid
 *.tmp
 
+localhost.crt
+localhost.key
+edge/certs/*.crt
+edge/certs/*.key
+
 
 
 *.pdf

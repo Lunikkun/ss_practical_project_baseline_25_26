@@ -126,7 +126,7 @@ jobs:
             tests/test_6_rce_static.py \
             tests/test_7_upload_hardening.py \
             tests/test_8_idor_protection.py \
-            tests/test_9_privilege_escalation.py
+            tests/test_9_privilege_escalation.py \
             tests/test_10_brute_force.py \
             tests/test_11_session_hijacking.py \
             tests/test_12_idor_attack_tree.py \
