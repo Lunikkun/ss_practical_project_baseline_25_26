@@ -69,6 +69,11 @@ jobs:
           echo "::add-mask::${DEPLOY_SECRET_KEY}"
           echo "::add-mask::${DEPLOY_API_KEY}"
 
+      - name: Generate temporary TLS certificates for CI
+        run: |
+          mkdir -p edge/certs
+          openssl req -x509 -nodes -newkey rsa:2048 -keyout edge/certs/localhost.key -out edge/certs/localhost.crt -days 1 -subj "/C=PT/ST=Coimbra/L=Coimbra/O=CI/CN=localhost"
+
       - name: Validate deploy compose rendering
         env:
           WEB_IMAGE: ${{ steps.deploy-images.outputs.web_image }}
